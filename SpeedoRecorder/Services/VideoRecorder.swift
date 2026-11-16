@@ -62,7 +62,15 @@ final class VideoRecorder: ObservableObject {
             .combineLatest(location.$maxSpeedKmh)
             .combineLatest(location.$coordinate)
         .map { values in
-            let ((((((((((s, lvl), gps), alt), hd), dist), asc), act), maxSp), coord) = values
+            let (v9, coord) = values
+            let (v8, maxSp) = v9
+            let (v7, act) = v8
+            let (v6, asc) = v7
+            let (v5, dist) = v6
+            let (v4, hd) = v5
+            let (v3, alt) = v4
+            let (v2, gps) = v3
+            let (s, lvl) = v2
             return Snapshot(speedKmh: s, unit: unit, gpsLevel: lvl, gpsText: gps,
                      address: map.addressText,
                      latitude: coord?.latitude ?? 0, longitude: coord?.longitude ?? 0,
