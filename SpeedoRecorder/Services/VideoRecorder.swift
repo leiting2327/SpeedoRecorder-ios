@@ -105,7 +105,7 @@ final class VideoRecorder: ObservableObject {
         outputURL = url
 
         let writer = try AVAssetWriter(outputURL: url, fileType: .mp4)
-        let settings: [String: Any] = [
+        let videoConfig: [String: Any] = [
             AVVideoCodecKey: AVVideoCodecType.h264,
             AVVideoWidthKey: canvasSize.width,
             AVVideoHeightKey: canvasSize.height,
@@ -114,7 +114,7 @@ final class VideoRecorder: ObservableObject {
                 AVVideoMaxKeyFrameIntervalKey: fps
             ]
         ]
-        let input = AVAssetWriterInput(mediaType: .video, outputSettings: settings)
+        let input = AVAssetWriterInput(mediaType: .video, outputSettings: videoConfig)
         input.expectsMediaDataInRealTime = true
 
         let attrs: [String: Any] = [
