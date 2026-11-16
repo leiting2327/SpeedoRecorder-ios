@@ -401,8 +401,7 @@ final class VideoRecorder: ObservableObject {
         // 外圈
         ctx.setStrokeColor(UIColor(white: 1, alpha: 0.25).cgColor)
         ctx.setLineWidth(3)
-        ctx.addEllipse(in: CGRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2))
-        ctx.stroke()
+        ctx.strokeEllipse(in: CGRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2))
 
         let dirs: [(String, Double)] = [("N", 0), ("E", 90), ("S", 180), ("W", 270)]
         for (label, deg) in dirs {
