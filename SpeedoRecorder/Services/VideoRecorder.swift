@@ -6,8 +6,9 @@ import UIKit
 import Combine
 
 /// 行程视频录制器：
-/// - 不采集摄像头画面，而是把“车速表仪表 + GPS/位置/轨迹信息”实时渲染成帧；
-/// - 每一帧都把当前车速、GPS 信号、地址、时间、里程、海拔、航向等信息烧录进画面；
+/// - 可选把后置摄像头实时画面作为底图，仪表/GPS/位置/里程等信息叠加在上层；
+/// - 可选同步收录环境音；
+/// - 每一帧都把当前车速、GPS 信号、地址、时间、里程、海拔、航向、指南针、小计等烧录进画面；
 /// - 导出为 H.264 mp4，可保存到相册。
 final class VideoRecorder: ObservableObject {
 
@@ -17,11 +18,17 @@ final class VideoRecorder: ObservableObject {
 
     private var writer: AVAssetWriter?
     private var videoInput: AVAssetWriterInput?
+    private var audioInput: AVAssetWriterInput?
     private var pixelBufferAdaptor: AVAssetWriterInputPixelBufferAdaptor?
     private var displayLink: CADisplayLink?
     private var startTime: Date?
     private var frameCount: Int = 0
     private var outputURL: URL?
+
+    /// 摄像头引用（可选注入）
+    weak var camera: CameraCapture?
+    /// 功能开关
+    var settings: AppSettings = .shared
 
     /// 录制画布尺寸（竖屏）
     let canvasSize = CGSize(width: 1080, height: 1920)
@@ -42,9 +49,13 @@ final class VideoRecorder: ObservableObject {
         var altitude: Double = 0
         var heading: Double = 0
         var distanceMeters: Double = 0
+        var tripSubMeters: Double = 0
         var ascentMeters: Double = 0
         var activity: String = ""
         var maxSpeed: Double = 0
+        var prevDistance: Double = 0
+        var prevMaxSpeed: Double = 0
+        var sampleCount: Int = 0
         var timestamp: Date = Date()
         var providerName: String = "CoreLocation"
     }
@@ -74,8 +85,13 @@ final class VideoRecorder: ObservableObject {
             return Snapshot(speedKmh: s, unit: unit, gpsLevel: lvl, gpsText: gps,
                      address: map.addressText,
                      latitude: coord?.latitude ?? 0, longitude: coord?.longitude ?? 0,
-                     altitude: alt, heading: hd, distanceMeters: dist, ascentMeters: asc,
-                     activity: act, maxSpeed: maxSp, timestamp: Date(),
+                     altitude: alt, heading: hd, distanceMeters: dist,
+                     tripSubMeters: location.tripSubMeters,
+                     ascentMeters: asc, activity: act, maxSpeed: maxSp,
+                     prevDistance: location.lastTripDistance,
+                     prevMaxSpeed: location.lastTripMaxSpeed,
+                     sampleCount: location.samples.count,
+                     timestamp: Date(),
                      providerName: map.provider.rawValue)
         }
         .assign(to: \.currentSnapshot, on: self)
@@ -109,6 +125,21 @@ final class VideoRecorder: ObservableObject {
         let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input, sourcePixelBufferAttributes: attrs)
 
         writer.add(input)
+
+        // 环境音轨道（开关打开时）
+        if settings.audio {
+            let audioSettings: [String: Any] = [
+                AVFormatIDKey: kAudioFormatMPEG4AAC,
+                AVSampleRateKey: 44100,
+                AVEncoderBitRateKey: 128_000,
+                AVNumberOfChannelsKey: 2
+            ]
+            let aInput = AVAssetWriterInput(mediaType: .audio, outputSettings: audioSettings)
+            aInput.expectsMediaDataInRealTime = true
+            writer.add(aInput)
+            self.audioInput = aInput
+        }
+
         guard writer.startWriting() else {
             throw writer.error ?? NSError(domain: "VideoRecorder", code: -1, userInfo: [NSLocalizedDescriptionKey: "无法开始写入"])
         }
@@ -120,7 +151,6 @@ final class VideoRecorder: ObservableObject {
         self.frameCount = 0
         self.startTime = nil
         self.recordDuration = 0
-        self.recordSize = 0
         self.recordSize = 0
 
         let link = CADisplayLink(target: self, selector: #selector(renderFrame))
@@ -140,6 +170,7 @@ final class VideoRecorder: ObservableObject {
             return
         }
         input.markAsFinished()
+        audioInput?.markAsFinished()
         writer.finishWriting { [weak self] in
             guard let self else { return }
             DispatchQueue.main.async {
@@ -152,6 +183,12 @@ final class VideoRecorder: ObservableObject {
                 }
             }
         }
+    }
+
+    /// 追加音频样本（由麦克风采集器调用）
+    func appendAudio(_ sample: CMSampleBuffer) {
+        guard let audioInput, audioInput.isReadyForMoreMediaData else { return }
+        audioInput.append(sample)
     }
 
     // MARK: - 逐帧渲染
@@ -187,7 +224,7 @@ final class VideoRecorder: ObservableObject {
         return status == kCVReturnSuccess ? buffer : nil
     }
 
-    /// 把信息绘制进帧缓冲：纯黑背景 + 液态玻璃仪表卡片。
+    /// 把信息绘制进帧缓冲：摄像头底图（可选）+ 深色遮罩 + 液态玻璃仪表卡片。
     private func renderInto(_ buffer: CVPixelBuffer, snapshot: Snapshot, elapsed: TimeInterval) {
         CVPixelBufferLockBaseAddress(buffer, [])
         defer { CVPixelBufferUnlockBaseAddress(buffer, []) }
@@ -204,9 +241,16 @@ final class VideoRecorder: ObservableObject {
         let w = canvasSize.width
         let h = canvasSize.height
 
-        // 纯黑背景
-        ctx.setFillColor(UIColor.black.cgColor)
-        ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
+        // 底图：摄像头画面（开关打开且有帧），否则纯黑
+        if settings.cameraPip, let cam = camera, let camBuf = cam.currentPixelBuffer() {
+            drawCameraFrame(ctx: ctx, buffer: camBuf)
+            // 压暗遮罩，保证仪表可读
+            ctx.setFillColor(UIColor.black.withAlphaComponent(0.45).cgColor)
+            ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
+        } else {
+            ctx.setFillColor(UIColor.black.cgColor)
+            ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
+        }
 
         // 顶部时间条
         let timeFmt = DateFormatter()
@@ -235,6 +279,12 @@ final class VideoRecorder: ObservableObject {
                          in: CGRect(x: card.minX, y: card.minY + 420, width: card.width, height: 90),
                          font: UIFont.systemFont(ofSize: 64, weight: .medium), color: .secondaryLabel)
 
+        // 指南针 + 转向箭头（开关打开）
+        if settings.compass {
+            drawCompass(context: ctx, heading: snapshot.heading,
+                        in: CGRect(x: card.maxX - 200, y: card.minY + 30, width: 150, height: 150))
+        }
+
         // 左右副指标
         let halfW = (w - 160) / 2
         let left = CGRect(x: 60, y: 900, width: halfW, height: 260)
@@ -244,31 +294,62 @@ final class VideoRecorder: ObservableObject {
         drawMetric(context: ctx, title: "里程", value: String(format: "%.2f km", snapshot.distanceMeters / 1000), in: left)
         drawMetric(context: ctx, title: "海拔", value: String(format: "%.0f m", snapshot.altitude), in: right)
 
+        // 分段小计 + 上一段对比（开关打开）
+        if settings.tripCompare {
+            let subCard = CGRect(x: 60, y: 1200, width: w - 120, height: 220)
+            drawGlassCard(context: ctx, rect: subCard)
+            drawText(context: ctx, text: "小计", at: CGPoint(x: subCard.minX + 50, y: subCard.minY + 40),
+                     font: UIFont.systemFont(ofSize: 36, weight: .medium), color: .secondaryLabel)
+            drawText(context: ctx, text: String(format: "%.2f km", snapshot.tripSubMeters / 1000),
+                     at: CGPoint(x: subCard.minX + 50, y: subCard.minY + 110),
+                     font: UIFont.systemFont(ofSize: 52, weight: .bold), color: .white)
+            let prevText = snapshot.prevDistance > 0
+                ? String(format: "上段 %.2f km · 最高 %.0f %@", snapshot.prevDistance / 1000, snapshot.prevMaxSpeed, snapshot.unit.rawValue)
+                : "暂无上段记录"
+            drawText(context: ctx, text: prevText,
+                     at: CGPoint(x: subCard.minX + 380, y: subCard.minY + 90),
+                     font: UIFont.systemFont(ofSize: 34, weight: .regular), color: .secondaryLabel,
+                     maxWidth: subCard.width - 430)
+        }
+
         // GPS 信号卡
-        let gpsCard = CGRect(x: 60, y: 1200, width: w - 120, height: 240)
+        let gpsY: CGFloat = settings.tripCompare ? 1460 : 1200
+        let gpsCard = CGRect(x: 60, y: gpsY, width: w - 120, height: 220)
         drawGlassCard(context: ctx, rect: gpsCard)
-        drawGpsBars(context: ctx, level: snapshot.gpsLevel, in: CGRect(x: gpsCard.minX + 50, y: gpsCard.minY + 70, width: 220, height: 100))
-        drawText(context: ctx, text: "GPS \(snapshot.gpsText)", at: CGPoint(x: gpsCard.minX + 310, y: gpsCard.minY + 80),
+        drawGpsBars(context: ctx, level: snapshot.gpsLevel, in: CGRect(x: gpsCard.minX + 50, y: gpsCard.minY + 60, width: 220, height: 100))
+        drawText(context: ctx, text: "GPS \(snapshot.gpsText)", at: CGPoint(x: gpsCard.minX + 310, y: gpsCard.minY + 70),
                  font: UIFont.systemFont(ofSize: 46, weight: .semibold), color: .white)
 
         // 位置信息卡
-        let locCard = CGRect(x: 60, y: 1480, width: w - 120, height: 300)
+        let locY: CGFloat = gpsY + 260
+        let locCard = CGRect(x: 60, y: locY, width: w - 120, height: 260)
         drawGlassCard(context: ctx, rect: locCard)
-        drawText(context: ctx, text: "📍 \(snapshot.address)", at: CGPoint(x: locCard.minX + 50, y: locCard.minY + 50),
+        drawText(context: ctx, text: "📍 \(snapshot.address)", at: CGPoint(x: locCard.minX + 50, y: locCard.minY + 40),
                  font: UIFont.systemFont(ofSize: 40, weight: .medium), color: .white, maxWidth: locCard.width - 100)
         drawText(context: ctx, text: String(format: "%.6f, %.6f", snapshot.latitude, snapshot.longitude),
-                 at: CGPoint(x: locCard.minX + 50, y: locCard.minY + 140),
+                 at: CGPoint(x: locCard.minX + 50, y: locCard.minY + 120),
                  font: UIFont.monospacedDigitSystemFont(ofSize: 38, weight: .regular), color: .secondaryLabel)
-        drawText(context: ctx, text: String(format: "航向 %.0f° · 爬升 %.0f m · 活动 %@ · 最高 %.0f %@",
+        drawText(context: ctx, text: String(format: "航向 %.0f° · 爬升 %.0f m · 活动 %@ · 最高 %.0f %@ · 采样 %d",
                                    snapshot.heading, snapshot.ascentMeters, snapshot.activity,
-                                   snapshot.maxSpeed, snapshot.unit.rawValue),
-                 at: CGPoint(x: locCard.minX + 50, y: locCard.minY + 210),
-                 font: UIFont.systemFont(ofSize: 34, weight: .regular), color: .secondaryLabel, maxWidth: locCard.width - 100)
+                                   snapshot.maxSpeed, snapshot.unit.rawValue, snapshot.sampleCount),
+                 at: CGPoint(x: locCard.minX + 50, y: locCard.minY + 185),
+                 font: UIFont.systemFont(ofSize: 32, weight: .regular), color: .secondaryLabel, maxWidth: locCard.width - 100)
 
         // 底部水印
         drawCenteredText(context: ctx, text: "SpeedoRecorder · \(snapshot.providerName)",
                          in: CGRect(x: 60, y: h - 120, width: w - 120, height: 60),
                          font: UIFont.systemFont(ofSize: 30, weight: .regular), color: .tertiaryLabel)
+    }
+
+    /// 把摄像头帧按填充方式绘制到画布
+    private func drawCameraFrame(ctx: CGContext, buffer: CVPixelBuffer) {
+        let ci = CIImage(cvPixelBuffer: buffer)
+        let scaled = ci.transformed(by: CGAffineTransform(scaleX: canvasSize.width / ci.extent.width,
+                                                          y: canvasSize.height / ci.extent.height))
+        let context = CIContext()
+        if let cg = context.createCGImage(scaled, from: scaled.extent) {
+            ctx.draw(cg, in: CGRect(x: 0, y: 0, width: canvasSize.width, height: canvasSize.height))
+        }
     }
 
     private func displayedSpeed(_ s: Snapshot) -> Double {
@@ -279,13 +360,11 @@ final class VideoRecorder: ObservableObject {
     private func drawGlassCard(context ctx: CGContext, rect: CGRect) {
         let path = UIBezierPath(roundedRect: rect, cornerRadius: 44)
         ctx.saveGState()
-        // 半透明填充（液态玻璃质感：深色玻璃 + 细高光边）
         ctx.setFillColor(UIColor(white: 1, alpha: 0.08).cgColor)
         path.fill()
         ctx.setStrokeColor(UIColor(white: 1, alpha: 0.18).cgColor)
         ctx.setLineWidth(2)
         path.stroke()
-        // 顶部高光
         let highlight = CGRect(x: rect.minX + 20, y: rect.minY + 12, width: rect.width - 40, height: 2)
         ctx.setFillColor(UIColor(white: 1, alpha: 0.25).cgColor)
         ctx.fill(highlight)
@@ -312,6 +391,50 @@ final class VideoRecorder: ObservableObject {
             let p = UIBezierPath(roundedRect: bar, cornerRadius: 8)
             p.fill()
         }
+    }
+
+    /// 指南针表盘：指针随航向旋转，标 N/E/S/W。
+    private func drawCompass(context ctx: CGContext, heading: Double, in rect: CGRect) {
+        let center = CGPoint(x: rect.midX, y: rect.midY)
+        let radius = min(rect.width, rect.height) / 2 - 6
+        ctx.saveGState()
+        // 外圈
+        ctx.setStrokeColor(UIColor.white.opacity(0.25).cgColor)
+        ctx.setLineWidth(3)
+        ctx.addEllipse(in: CGRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2))
+        ctx.stroke()
+
+        let dirs: [(String, Double)] = [("N", 0), ("E", 90), ("S", 180), ("W", 270)]
+        for (label, deg) in dirs {
+            let rad = (deg - 90) * .pi / 180
+            let px = center.x + cos(rad) * (radius - 18)
+            let py = center.y + sin(rad) * (radius - 18)
+            let attr: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: 24, weight: .semibold),
+                .foregroundColor: label == "N" ? UIColor.systemRed : UIColor.white
+            ]
+            let att = NSAttributedString(string: label, attributes: attr)
+            let size = att.size()
+            att.draw(in: CGRect(x: px - size.width / 2, y: py - size.height / 2, width: size.width, height: size.height))
+        }
+
+        // 指针（指向当前航向）
+        ctx.translateBy(x: center.x, y: center.y)
+        ctx.rotate(by: CGFloat(heading * .pi / 180))
+        let pointer = UIBezierPath()
+        pointer.move(to: CGPoint(x: 0, y: -radius + 10))
+        pointer.addLine(to: CGPoint(x: 12, y: 0))
+        pointer.addLine(to: CGPoint(x: 0, y: radius - 20))
+        pointer.addLine(to: CGPoint(x: -12, y: 0))
+        pointer.close()
+        ctx.setFillColor(UIColor.systemBlue.cgColor)
+        pointer.fill()
+        ctx.restoreGState()
+
+        // 航向数字
+        drawCenteredText(context: ctx, text: String(format: "%.0f°", heading),
+                         in: CGRect(x: rect.minX, y: rect.maxY - 40, width: rect.width, height: 36),
+                         font: UIFont.systemFont(ofSize: 26, weight: .medium), color: .white)
     }
 
     private func drawText(context ctx: CGContext, text: String, at point: CGPoint,

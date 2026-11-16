@@ -1,14 +1,14 @@
 import SwiftUI
 
-/// 设置页：地图数据源、API Key、速度单位、里程表清零、数据导出。
+/// 设置页：地图数据源、API Key、速度单位、功能开关（默认全开）、数据导出。
 struct SettingsView: View {
     @EnvironmentObject var map: MapService
     @EnvironmentObject var location: LocationManager
     @EnvironmentObject var recorder: VideoRecorder
+    @EnvironmentObject var settings: AppSettings
 
     @AppStorage("speedUnit") private var unitRaw: String = SpeedUnit.kmh.rawValue
     @AppStorage("speedLimit") private var speedLimit: Double = 120
-    @AppStorage("overSpeedAlert") private var overSpeedAlert: Bool = true
 
     @State private var shareURLs: [URL] = []
     @State private var showShare = false
@@ -17,6 +17,19 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section("功能开关（默认全部打开）") {
+                    Toggle("摄像头画中画（叠加路况画面）", isOn: $settings.cameraPip)
+                    Toggle("轨迹地图回放", isOn: $settings.trackReplay)
+                    Toggle("指南针表盘与转向箭头", isOn: $settings.compass)
+                    Toggle("分段小计与行程对比", isOn: $settings.tripCompare)
+                    Toggle("录制同步环境音", isOn: $settings.audio)
+                    Toggle("超速提示", isOn: $settings.overSpeedAlert)
+                    Button("恢复全部默认开启") {
+                        settings.resetToDefaults()
+                        message = "已恢复默认（全部打开）"
+                    }
+                }
+
                 Section("地图数据源") {
                     Picker("地图接口", selection: $map.provider) {
                         ForEach(MapProvider.allCases) { p in
@@ -44,12 +57,15 @@ struct SettingsView: View {
                         }
                     }
                     Stepper("超速阈值：\(Int(speedLimit)) km/h", value: $speedLimit, in: 30...240, step: 10)
-                    Toggle("超速提示", isOn: $overSpeedAlert)
                 }
 
                 Section("行程数据") {
                     Button("导出 CSV 轨迹表") { exportCSV() }
                     Button("导出 JSON 数据") { exportJSON() }
+                    Button("清零分段小计") {
+                        location.resetSubTrip()
+                        message = "小计已清零"
+                    }
                     Button("清零本次里程与记录", role: .destructive) {
                         _ = location.endTrip()
                         message = "已清零"
@@ -73,10 +89,8 @@ struct SettingsView: View {
         }
     }
 
-    private var unit: SpeedUnit { SpeedUnit(rawValue: unitRaw) ?? .kmh }
-
-    private func exportCSV() {
-        let summary = TripSummary(
+    private func makeSummary() -> TripSummary {
+        TripSummary(
             startDate: location.samples.first?.timestamp ?? Date(),
             endDate: location.samples.last?.timestamp ?? Date(),
             maxSpeedKmh: location.maxSpeedKmh,
@@ -86,7 +100,10 @@ struct SettingsView: View {
             sampleCount: location.samples.count,
             provider: "CoreLocation"
         )
-        guard let url = TripExportService.shared.exportCSV(points: location.samples, summary: summary) else {
+    }
+
+    private func exportCSV() {
+        guard let url = TripExportService.shared.exportCSV(points: location.samples, summary: makeSummary()) else {
             message = "导出失败"
             return
         }
@@ -95,17 +112,7 @@ struct SettingsView: View {
     }
 
     private func exportJSON() {
-        let summary = TripSummary(
-            startDate: location.samples.first?.timestamp ?? Date(),
-            endDate: location.samples.last?.timestamp ?? Date(),
-            maxSpeedKmh: location.maxSpeedKmh,
-            avgSpeedKmh: location.samples.map(\.speedKmh).reduce(0, +) / Double(max(location.samples.count, 1)),
-            distanceMeters: location.tripDistance,
-            ascentMeters: location.tripAscent,
-            sampleCount: location.samples.count,
-            provider: "CoreLocation"
-        )
-        guard let url = TripExportService.shared.exportJSON(points: location.samples, summary: summary) else {
+        guard let url = TripExportService.shared.exportJSON(points: location.samples, summary: makeSummary()) else {
             message = "导出失败"
             return
         }

@@ -28,6 +28,12 @@ final class LocationManager: NSObject, ObservableObject {
     @Published var maxSpeedKmh: Double = 0
     @Published var samples: [TrackPoint] = []
 
+    /// 分段小计里程（米），可单独清零
+    @Published var tripSubMeters: Double = 0
+    /// 上一段行程记录（用于对比）
+    @Published var lastTripDistance: Double = 0
+    @Published var lastTripMaxSpeed: Double = 0
+
     /// 采样回调（录制视频时订阅）
     let onSample = PassthroughSubject<TrackPoint, Never>()
 
@@ -85,13 +91,22 @@ final class LocationManager: NSObject, ObservableObject {
             sampleCount: samples.count,
             provider: "CoreLocation"
         )
+        // 记录上一段用于对比
+        lastTripDistance = tripDistance
+        lastTripMaxSpeed = maxSpeedKmh
         samples.removeAll()
         tripDistance = 0
         tripAscent = 0
         maxSpeedKmh = 0
+        tripSubMeters = 0
         prevAltitude = nil
         prevLocation = nil
         return summary
+    }
+
+    /// 仅清零分段小计，不清总里程
+    func resetSubTrip() {
+        tripSubMeters = 0
     }
 
     // MARK: - GPS 档位换算
@@ -125,7 +140,10 @@ extension LocationManager: CLLocationManagerDelegate {
         // 里程累计
         if let prev = prevLocation {
             let step = location.distance(from: prev)
-            if step > 0 && step < 500 { tripDistance += step }
+            if step > 0 && step < 500 {
+                tripDistance += step
+                tripSubMeters += step
+            }
         }
         // 爬升累计
         if let prevAlt = prevAltitude, location.altitude > prevAlt {
