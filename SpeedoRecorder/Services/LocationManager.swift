@@ -128,8 +128,8 @@ extension LocationManager: CLLocationManagerDelegate {
             if step > 0 && step < 500 { tripDistance += step }
         }
         // 爬升累计
-        if let prevAlt = prevAltitude, location.altitude > prevAltitude {
-            tripAscent += location.altitude - prevAltitude
+        if let prevAlt = prevAltitude, location.altitude > prevAlt {
+            tripAscent += location.altitude - prevAlt
         }
         prevAltitude = location.altitude
         prevLocation = location
