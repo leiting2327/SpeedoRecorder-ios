@@ -1,6 +1,7 @@
 import Foundation
 import CoreLocation
 import Combine
+import UIKit
 
 /// 地图配置：高德 / 百度 REST API Key 由用户在设置页填入。
 /// 选“系统地图”时使用 Apple Maps，无需 Key。

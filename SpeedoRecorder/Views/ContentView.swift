@@ -269,12 +269,23 @@ struct MiniMap: View {
         center: CLLocationCoordinate2D(latitude: 39.9042, longitude: 116.4074),
         span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
     )
+    @State private var lastLat: Double = 0
+    @State private var lastLon: Double = 0
 
     var body: some View {
         Map(coordinateRegion: $region, showsUserLocation: true, userTrackingMode: .constant(.follow))
-            .onChange(of: coordinate) { _, coord in
-                guard let coord else { return }
-                region = MKCoordinateRegion(center: coord, span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01))
+            .onChange(of: coordinate?.latitude ?? 0) { _, lat in
+                updateRegion(lat: lat, lon: coordinate?.longitude ?? lastLon)
             }
+            .onChange(of: coordinate?.longitude ?? 0) { _, lon in
+                updateRegion(lat: coordinate?.latitude ?? lastLat, lon: lon)
+            }
+    }
+
+    private func updateRegion(lat: Double, lon: Double) {
+        guard abs(lat - lastLat) > 0.0001 || abs(lon - lastLon) > 0.0001 else { return }
+        lastLat = lat; lastLon = lon
+        region = MKCoordinateRegion(center: CLLocationCoordinate2D(latitude: lat, longitude: lon),
+                                    span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01))
     }
 }

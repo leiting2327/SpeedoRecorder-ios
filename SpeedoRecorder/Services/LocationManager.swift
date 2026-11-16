@@ -33,8 +33,8 @@ final class LocationManager: NSObject, ObservableObject {
 
     private let manager = CLLocationManager()
     private let motionManager = CMMotionActivityManager()
-    private var lastLocation: CLLocation?
-    private var lastAltitude: Double?
+    private var prevLocation: CLLocation?
+    private var prevAltitude: Double?
 
     override init() {
         super.init()
@@ -89,8 +89,8 @@ final class LocationManager: NSObject, ObservableObject {
         tripDistance = 0
         tripAscent = 0
         maxSpeedKmh = 0
-        lastAltitude = nil
-        lastLocation = nil
+        prevAltitude = nil
+        prevLocation = nil
         return summary
     }
 
@@ -123,16 +123,16 @@ extension LocationManager: CLLocationManagerDelegate {
         let kmh = mps * 3.6
 
         // 里程累计
-        if let prev = lastLocation {
+        if let prev = prevLocation {
             let step = location.distance(from: prev)
             if step > 0 && step < 500 { tripDistance += step }
         }
         // 爬升累计
-        if let prevAlt = lastAltitude, location.altitude > prevAltitude {
+        if let prevAlt = prevAltitude, location.altitude > prevAltitude {
             tripAscent += location.altitude - prevAltitude
         }
-        lastAltitude = location.altitude
-        lastLocation = location
+        prevAltitude = location.altitude
+        prevLocation = location
 
         maxSpeedKmh = max(maxSpeedKmh, kmh)
 

@@ -52,20 +52,26 @@ final class VideoRecorder: ObservableObject {
     /// 订阅定位与地图服务，持续刷新录制画面用到的数据
     func bind(location: LocationManager, map: MapService, unit: SpeedUnit) {
         location.$speedKmh
-            .combineLatest(location.$gpsLevel, location.$gpsDescription,
-                           location.$altitude, location.$heading,
-                           location.$tripDistance, location.$tripAscent,
-                           location.$activity, location.$maxSpeedKmh,
-                           location.$coordinate) { s, lvl, gps, alt, hd, dist, asc, act, maxSp, coord in
-                Snapshot(speedKmh: s, unit: unit, gpsLevel: lvl, gpsText: gps,
-                         address: map.addressText,
-                         latitude: coord?.latitude ?? 0, longitude: coord?.longitude ?? 0,
-                         altitude: alt, heading: hd, distanceMeters: dist, ascentMeters: asc,
-                         activity: act, maxSpeed: maxSp, timestamp: Date(),
-                         providerName: map.provider.rawValue)
-            }
-            .assign(to: \.currentSnapshot, on: self)
-            .store(in: &cancellables)
+            .combineLatest(location.$gpsLevel)
+            .combineLatest(location.$gpsDescription)
+            .combineLatest(location.$altitude)
+            .combineLatest(location.$heading)
+            .combineLatest(location.$tripDistance)
+            .combineLatest(location.$tripAscent)
+            .combineLatest(location.$activity)
+            .combineLatest(location.$maxSpeedKmh)
+            .combineLatest(location.$coordinate)
+        .map { values in
+            let ((((((((((s, lvl), gps), alt), hd), dist), asc), act), maxSp), coord) = values
+            return Snapshot(speedKmh: s, unit: unit, gpsLevel: lvl, gpsText: gps,
+                     address: map.addressText,
+                     latitude: coord?.latitude ?? 0, longitude: coord?.longitude ?? 0,
+                     altitude: alt, heading: hd, distanceMeters: dist, ascentMeters: asc,
+                     activity: act, maxSpeed: maxSp, timestamp: Date(),
+                     providerName: map.provider.rawValue)
+        }
+        .assign(to: \.currentSnapshot, on: self)
+        .store(in: &cancellables)
     }
 
     // MARK: - 开始 / 停止
@@ -197,7 +203,7 @@ final class VideoRecorder: ObservableObject {
         // 顶部时间条
         let timeFmt = DateFormatter()
         timeFmt.dateFormat = "yyyy-MM-dd  HH:mm:ss"
-        drawText(ctx, text: timeFmt.string(from: snapshot.timestamp),
+        drawText(context: ctx, text: timeFmt.string(from: snapshot.timestamp),
                  at: CGPoint(x: 60, y: 80), font: UIFont.systemFont(ofSize: 44, weight: .medium),
                  color: .white)
 
@@ -205,19 +211,19 @@ final class VideoRecorder: ObservableObject {
         if isRecording {
             ctx.setFillColor(UIColor.systemRed.cgColor)
             ctx.fillEllipse(in: CGRect(x: w - 220, y: 88, width: 36, height: 36))
-            drawText(ctx, text: String(format: "REC %02d:%02d", Int(elapsed) / 60, Int(elapsed) % 60),
+            drawText(context: ctx, text: String(format: "REC %02d:%02d", Int(elapsed) / 60, Int(elapsed) % 60),
                      at: CGPoint(x: w - 170, y: 80), font: UIFont.monospacedDigitSystemFont(ofSize: 40, weight: .semibold),
                      color: .white)
         }
 
         // 大车速表（液态玻璃卡片）
         let card = CGRect(x: 60, y: 220, width: w - 120, height: 620)
-        drawGlassCard(ctx, rect: card)
+        drawGlassCard(context: ctx, rect: card)
 
         let speedText = String(format: "%.0f", displayedSpeed(snapshot))
-        drawCenteredText(ctx, text: speedText, in: CGRect(x: card.minX, y: card.minY + 90, width: card.width, height: 320),
+        drawCenteredText(context: ctx, text: speedText, in: CGRect(x: card.minX, y: card.minY + 90, width: card.width, height: 320),
                          font: UIFont.systemFont(ofSize: 220, weight: .heavy), color: .white)
-        drawCenteredText(ctx, text: snapshot.unit.rawValue,
+        drawCenteredText(context: ctx, text: snapshot.unit.rawValue,
                          in: CGRect(x: card.minX, y: card.minY + 420, width: card.width, height: 90),
                          font: UIFont.systemFont(ofSize: 64, weight: .medium), color: .secondaryLabel)
 
@@ -225,34 +231,34 @@ final class VideoRecorder: ObservableObject {
         let halfW = (w - 160) / 2
         let left = CGRect(x: 60, y: 900, width: halfW, height: 260)
         let right = CGRect(x: 100 + halfW, y: 900, width: halfW, height: 260)
-        drawGlassCard(ctx, rect: left)
-        drawGlassCard(ctx, rect: right)
-        drawMetric(ctx, title: "里程", value: String(format: "%.2f km", snapshot.distanceMeters / 1000), in: left)
-        drawMetric(ctx, title: "海拔", value: String(format: "%.0f m", snapshot.altitude), in: right)
+        drawGlassCard(context: ctx, rect: left)
+        drawGlassCard(context: ctx, rect: right)
+        drawMetric(context: ctx, title: "里程", value: String(format: "%.2f km", snapshot.distanceMeters / 1000), in: left)
+        drawMetric(context: ctx, title: "海拔", value: String(format: "%.0f m", snapshot.altitude), in: right)
 
         // GPS 信号卡
         let gpsCard = CGRect(x: 60, y: 1200, width: w - 120, height: 240)
-        drawGlassCard(ctx, rect: gpsCard)
-        drawGpsBars(ctx, level: snapshot.gpsLevel, in: CGRect(x: gpsCard.minX + 50, y: gpsCard.minY + 70, width: 220, height: 100))
-        drawText(ctx, text: "GPS \(snapshot.gpsText)", at: CGPoint(x: gpsCard.minX + 310, y: gpsCard.minY + 80),
+        drawGlassCard(context: ctx, rect: gpsCard)
+        drawGpsBars(context: ctx, level: snapshot.gpsLevel, in: CGRect(x: gpsCard.minX + 50, y: gpsCard.minY + 70, width: 220, height: 100))
+        drawText(context: ctx, text: "GPS \(snapshot.gpsText)", at: CGPoint(x: gpsCard.minX + 310, y: gpsCard.minY + 80),
                  font: UIFont.systemFont(ofSize: 46, weight: .semibold), color: .white)
 
         // 位置信息卡
         let locCard = CGRect(x: 60, y: 1480, width: w - 120, height: 300)
-        drawGlassCard(ctx, rect: locCard)
-        drawText(ctx, text: "📍 \(snapshot.address)", at: CGPoint(x: locCard.minX + 50, y: locCard.minY + 50),
+        drawGlassCard(context: ctx, rect: locCard)
+        drawText(context: ctx, text: "📍 \(snapshot.address)", at: CGPoint(x: locCard.minX + 50, y: locCard.minY + 50),
                  font: UIFont.systemFont(ofSize: 40, weight: .medium), color: .white, maxWidth: locCard.width - 100)
-        drawText(ctx, text: String(format: "%.6f, %.6f", snapshot.latitude, snapshot.longitude),
+        drawText(context: ctx, text: String(format: "%.6f, %.6f", snapshot.latitude, snapshot.longitude),
                  at: CGPoint(x: locCard.minX + 50, y: locCard.minY + 140),
                  font: UIFont.monospacedDigitSystemFont(ofSize: 38, weight: .regular), color: .secondaryLabel)
-        drawText(ctx, text: String(format: "航向 %.0f° · 爬升 %.0f m · 活动 %@ · 最高 %.0f %@",
+        drawText(context: ctx, text: String(format: "航向 %.0f° · 爬升 %.0f m · 活动 %@ · 最高 %.0f %@",
                                    snapshot.heading, snapshot.ascentMeters, snapshot.activity,
                                    snapshot.maxSpeed, snapshot.unit.rawValue),
                  at: CGPoint(x: locCard.minX + 50, y: locCard.minY + 210),
                  font: UIFont.systemFont(ofSize: 34, weight: .regular), color: .secondaryLabel, maxWidth: locCard.width - 100)
 
         // 底部水印
-        drawCenteredText(ctx, text: "SpeedoRecorder · \(snapshot.providerName)",
+        drawCenteredText(context: ctx, text: "SpeedoRecorder · \(snapshot.providerName)",
                          in: CGRect(x: 60, y: h - 120, width: w - 120, height: 60),
                          font: UIFont.systemFont(ofSize: 30, weight: .regular), color: .tertiaryLabel)
     }
@@ -262,7 +268,7 @@ final class VideoRecorder: ObservableObject {
     }
 
     // MARK: - 绘制辅助
-    private func drawGlassCard(ctx: CGContext, rect: CGRect) {
+    private func drawGlassCard(context ctx: CGContext, rect: CGRect) {
         let path = UIBezierPath(roundedRect: rect, cornerRadius: 44)
         ctx.saveGState()
         // 半透明填充（液态玻璃质感：深色玻璃 + 细高光边）
@@ -278,14 +284,14 @@ final class VideoRecorder: ObservableObject {
         ctx.restoreGState()
     }
 
-    private func drawMetric(ctx: CGContext, title: String, value: String, in rect: CGRect) {
-        drawCenteredText(ctx, text: title, in: CGRect(x: rect.minX, y: rect.minY + 40, width: rect.width, height: 70),
+    private func drawMetric(context ctx: CGContext, title: String, value: String, in rect: CGRect) {
+        drawCenteredText(context: ctx, text: title, in: CGRect(x: rect.minX, y: rect.minY + 40, width: rect.width, height: 70),
                          font: UIFont.systemFont(ofSize: 40, weight: .medium), color: .secondaryLabel)
-        drawCenteredText(ctx, text: value, in: CGRect(x: rect.minX, y: rect.minY + 120, width: rect.width, height: 100),
+        drawCenteredText(context: ctx, text: value, in: CGRect(x: rect.minX, y: rect.minY + 120, width: rect.width, height: 100),
                          font: UIFont.systemFont(ofSize: 56, weight: .bold), color: .white)
     }
 
-    private func drawGpsBars(ctx: CGContext, level: Int, in rect: CGRect) {
+    private func drawGpsBars(context ctx: CGContext, level: Int, in rect: CGRect) {
         let barW: CGFloat = 34
         let gap: CGFloat = 16
         for i in 0..<4 {
@@ -300,21 +306,18 @@ final class VideoRecorder: ObservableObject {
         }
     }
 
-    private func drawText(ctx: CGContext, text: String, at point: CGPoint,
+    private func drawText(context ctx: CGContext, text: String, at point: CGPoint,
                           font: UIFont, color: UIColor, maxWidth: CGFloat? = nil) {
         let attr: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color]
         let att = NSAttributedString(string: text, attributes: attr)
         let size = att.size()
-        var x = point.x
-        var y = point.y
         var drawW = size.width
         if let maxWidth, size.width > maxWidth { drawW = maxWidth }
-        let rect = CGRect(x: x, y: y, width: drawW, height: size.height + 20)
+        let rect = CGRect(x: point.x, y: point.y, width: drawW, height: size.height + 20)
         att.draw(in: rect)
-        _ = &x; _ = &y
     }
 
-    private func drawCenteredText(ctx: CGContext, text: String, in rect: CGRect,
+    private func drawCenteredText(context ctx: CGContext, text: String, in rect: CGRect,
                                   font: UIFont, color: UIColor) {
         let attr: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color]
         let att = NSAttributedString(string: text, attributes: attr)
