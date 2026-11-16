@@ -29,8 +29,6 @@ final class VideoRecorder: ObservableObject {
     weak var camera: CameraCapture?
     /// 功能开关
     var settings: AppSettings = .shared
-    /// 音频开关别名（避免与 AV 配置字典冲突）
-    private var audioEnabled: Bool { settings.audio }
 
     /// 录制画布尺寸（竖屏）
     let canvasSize = CGSize(width: 1080, height: 1920)
@@ -129,14 +127,14 @@ final class VideoRecorder: ObservableObject {
         writer.add(input)
 
         // 环境音轨道（开关打开时）
-        if settings.audioEnabled {
-            let audioSettings: [String: Any] = [
+        if settings.audio {
+            let audioConfig: [String: Any] = [
                 AVFormatIDKey: kAudioFormatMPEG4AAC,
                 AVSampleRateKey: 44100,
                 AVEncoderBitRateKey: 128_000,
                 AVNumberOfChannelsKey: 2
             ]
-            let aInput = AVAssetWriterInput(mediaType: .audio, outputSettings: audioSettings)
+            let aInput = AVAssetWriterInput(mediaType: .audio, outputSettings: audioConfig)
             aInput.expectsMediaDataInRealTime = true
             writer.add(aInput)
             self.audioInput = aInput
