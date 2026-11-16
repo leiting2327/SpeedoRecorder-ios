@@ -29,6 +29,8 @@ final class VideoRecorder: ObservableObject {
     weak var camera: CameraCapture?
     /// 功能开关
     var settings: AppSettings = .shared
+    /// 音频开关别名（避免与 AV 配置字典冲突）
+    private var audioEnabled: Bool { settings.audio }
 
     /// 录制画布尺寸（竖屏）
     let canvasSize = CGSize(width: 1080, height: 1920)
@@ -127,7 +129,7 @@ final class VideoRecorder: ObservableObject {
         writer.add(input)
 
         // 环境音轨道（开关打开时）
-        if settings.audio {
+        if settings.audioEnabled {
             let audioSettings: [String: Any] = [
                 AVFormatIDKey: kAudioFormatMPEG4AAC,
                 AVSampleRateKey: 44100,
@@ -399,7 +401,7 @@ final class VideoRecorder: ObservableObject {
         let radius = min(rect.width, rect.height) / 2 - 6
         ctx.saveGState()
         // 外圈
-        ctx.setStrokeColor(UIColor.white.opacity(0.25).cgColor)
+        ctx.setStrokeColor(UIColor(white: 1, alpha: 0.25).cgColor)
         ctx.setLineWidth(3)
         ctx.addEllipse(in: CGRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2))
         ctx.stroke()

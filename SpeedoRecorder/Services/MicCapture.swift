@@ -1,8 +1,9 @@
 import Foundation
 import AVFoundation
+import Combine
 
 /// 麦克风环境音采集：把实时音频样本转发给 VideoRecorder 合进视频。
-final class MicCapture: NSObject {
+final class MicCapture: NSObject, ObservableObject {
 
     private var captureSession: AVCaptureSession?
     private var audioOutput: AVCaptureAudioDataOutput?
