@@ -6,16 +6,18 @@ import CoreVideo
 /// 后置摄像头采集：
 /// - 提供实时预览图层供界面画中画显示；
 /// - 保留最新一帧 CVPixelBuffer，供视频录制合成时作为底图。
+/// 所有会话操作走串行队列，权限/设备不可用时安全降级，不抛异常。
 final class CameraCapture: NSObject, ObservableObject {
 
     @Published var isAuthorized: Bool = false
     @Published var previewLayer: AVCaptureVideoPreviewLayer?
 
     private let session = AVCaptureSession()
-    private let sessionQueue = DispatchQueue(label: "camera.session")
+    private let sessionQueue = DispatchQueue(label: "camera.session", qos: .userInitiated)
     private var videoOutput: AVCaptureVideoDataOutput?
     private var latestBuffer: CVPixelBuffer?
     private let bufferLock = NSLock()
+    private var configured = false
 
     /// 是否已启动
     private(set) var running = false
@@ -36,23 +38,31 @@ final class CameraCapture: NSObject, ObservableObject {
                 }
             }
         default:
-            isAuthorized = false
+            DispatchQueue.main.async { self.isAuthorized = false }
         }
     }
 
     private func startSession() {
         sessionQueue.async { [weak self] in
             guard let self else { return }
+            guard !self.configured else {
+                self.session.startRunning()
+                self.running = true
+                return
+            }
             self.session.beginConfiguration()
-            self.session.sessionPreset = .hd1920x1080
+            self.session.sessionPreset = .medium
 
-            // 后置摄像头
-            guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back),
-                  let input = try? AVCaptureDeviceInput(device: device) else {
+            guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) else {
                 self.session.commitConfiguration()
                 return
             }
-            if self.session.canAddInput(input) { self.session.addInput(input) }
+            guard let input = try? AVCaptureDeviceInput(device: device),
+                  self.session.canAddInput(input) else {
+                self.session.commitConfiguration()
+                return
+            }
+            self.session.addInput(input)
 
             let output = AVCaptureVideoDataOutput()
             output.alwaysDiscardsLateVideoFrames = true
@@ -60,10 +70,13 @@ final class CameraCapture: NSObject, ObservableObject {
                 kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
             ]
             output.setSampleBufferDelegate(self, queue: self.sessionQueue)
-            if self.session.canAddOutput(output) { self.session.addOutput(output) }
-            self.videoOutput = output
+            if self.session.canAddOutput(output) {
+                self.session.addOutput(output)
+                self.videoOutput = output
+            }
 
             self.session.commitConfiguration()
+            self.configured = true
             self.session.startRunning()
             self.running = true
 
@@ -84,7 +97,7 @@ final class CameraCapture: NSObject, ObservableObject {
         }
     }
 
-    /// 取最新一帧（返回自动释放的副本引用），无帧返回 nil。
+    /// 取最新一帧，无帧返回 nil。
     func currentPixelBuffer() -> CVPixelBuffer? {
         bufferLock.lock()
         let buf = latestBuffer

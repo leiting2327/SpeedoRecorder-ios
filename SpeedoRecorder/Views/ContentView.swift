@@ -38,7 +38,7 @@ struct ContentView: View {
                 Color.black.ignoresSafeArea()
 
                 // 摄像头画中画背景（开关打开且有权限）
-                if settings.cameraPip && camera.isAuthorized {
+                if settings.cameraPip, camera.isAuthorized, camera.running {
                     CameraPreviewLayer()
                         .ignoresSafeArea()
                         .opacity(0.55)
@@ -104,7 +104,9 @@ struct ContentView: View {
             .onAppear {
                 location.requestPermission()
                 recorder.bind(location: location, map: map, unit: unit)
-                if settings.cameraPip { camera.requestAndStart() }
+                if settings.cameraPip {
+                    camera.requestAndStart()
+                }
             }
             .onReceive(location.$lastLocation) { loc in
                 guard let loc else { return }
@@ -295,27 +297,30 @@ struct ContentView: View {
 
     private func toggleRecord() {
         if recorder.isRecording {
+            mic.stop()
             recorder.stop { url in
                 guard let url else {
-                    lastError = "视频合成失败"
+                    DispatchQueue.main.async { lastError = "视频合成失败" }
                     return
                 }
                 savedVideoURL = url
                 TripExportService.shared.saveVideoToAlbum(url: url) { ok, _ in
-                    if ok { showSavedAlert = true }
-                    else { lastError = "保存相册失败，可在文件中查看" }
+                    DispatchQueue.main.async {
+                        if ok { showSavedAlert = true }
+                        else { lastError = "保存相册失败，可在文件中查看" }
+                    }
                 }
                 _ = TripExportService.shared.exportCSV(points: location.samples, summary: nil)
             }
-            mic.stop()
         } else {
+            lastError = nil
+            recorder.camera = camera
+            mic.attach(recorder: recorder)
             do {
-                lastError = nil
-                recorder.camera = camera
-                mic.attach(recorder: recorder)
                 try recorder.start()
                 if settings.audio { mic.requestAndStart() }
             } catch {
+                recorder.stop { _ in }
                 lastError = "无法开始录制：\(error.localizedDescription)"
             }
         }
@@ -360,8 +365,8 @@ struct CameraPreviewLayer: UIViewRepresentable {
 
     final class PreviewView: UIView {
         override class var layerClass: AnyClass { AVCaptureVideoPreviewLayer.self }
-        var videoPreviewLayer: AVCaptureVideoPreviewLayer {
-            layer as! AVCaptureVideoPreviewLayer
+        var videoPreviewLayer: AVCaptureVideoPreviewLayer? {
+            layer as? AVCaptureVideoPreviewLayer
         }
     }
 }
@@ -426,7 +431,7 @@ struct MiniMap: View {
     @State private var lastLon: Double = 0
 
     var body: some View {
-        Map(coordinateRegion: $region, showsUserLocation: true, userTrackingMode: .constant(.follow))
+        Map(coordinateRegion: $region, showsUserLocation: true)
             .onChange(of: coordinate?.latitude ?? 0) { _, lat in
                 updateRegion(lat: lat, lon: coordinate?.longitude ?? lastLon)
             }

@@ -19,13 +19,17 @@ struct TrackReplayView: UIViewRepresentable {
         map.removeOverlays(map.overlays)
         map.removeAnnotations(map.annotations)
 
-        guard !points.isEmpty else { return }
+        let coords = points.compactMap { p -> CLLocationCoordinate2D? in
+            guard CLLocationCoordinate2DIsValid(CLLocationCoordinate2D(latitude: p.latitude, longitude: p.longitude)) else { return nil }
+            return CLLocationCoordinate2D(latitude: p.latitude, longitude: p.longitude)
+        }
+        guard !coords.isEmpty else { return }
 
-        let coords = points.map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) }
-
-        // 轨迹折线
-        let polyline = MKPolyline(coordinates: coords, count: coords.count)
-        map.addOverlay(polyline)
+        // 轨迹折线（单点时不画）
+        if coords.count > 1 {
+            let polyline = MKPolyline(coordinates: coords, count: coords.count)
+            map.addOverlay(polyline)
+        }
 
         // 起点 / 终点标注
         if let first = points.first {

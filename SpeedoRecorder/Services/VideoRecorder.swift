@@ -100,6 +100,14 @@ final class VideoRecorder: ObservableObject {
 
     // MARK: - 开始 / 停止
     func start() throws {
+        // 清理上一次残留
+        displayLink?.invalidate()
+        displayLink = nil
+        writer = nil
+        videoInput = nil
+        audioInput = nil
+        pixelBufferAdaptor = nil
+
         let fileName = "行程视频-\(Self.fileDate()).mp4"
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
         outputURL = url
@@ -188,6 +196,7 @@ final class VideoRecorder: ObservableObject {
     /// 追加音频样本（由麦克风采集器调用）
     func appendAudio(_ sample: CMSampleBuffer) {
         guard let audioInput, audioInput.isReadyForMoreMediaData else { return }
+        guard CMSampleBufferIsValid(sample) else { return }
         audioInput.append(sample)
     }
 
@@ -200,13 +209,14 @@ final class VideoRecorder: ObservableObject {
 
         let now = Date()
         if startTime == nil { startTime = now }
-        let elapsed = now.timeIntervalSince(startTime!)
+        guard let start = startTime else { return }
+        let elapsed = now.timeIntervalSince(start)
         recordDuration = elapsed
 
         guard let buffer = makePixelBuffer() else { return }
         renderInto(buffer, snapshot: currentSnapshot, elapsed: elapsed)
 
-        let time = CMTime(seconds: elapsed, preferredTimescale: CMTimeScale(fps))
+        let time = CMTime(seconds: max(elapsed, 0), preferredTimescale: CMTimeScale(fps))
         if adaptor.append(buffer, withPresentationTime: time) {
             frameCount += 1
         }

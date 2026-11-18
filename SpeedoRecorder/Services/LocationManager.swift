@@ -54,17 +54,26 @@ final class LocationManager: NSObject, ObservableObject {
 
     // MARK: - 权限与启动
     func requestPermission() {
-        manager.requestAlwaysAuthorization()
+        let status = manager.authorizationStatus
+        if status == .notDetermined {
+            manager.requestAlwaysAuthorization()
+        }
+        guard status == .authorized || status == .notDetermined else {
+            gpsDescription = "定位权限未开启，请在系统设置中允许"
+            return
+        }
         manager.startUpdatingLocation()
         manager.startUpdatingHeading()
         if CMMotionActivityManager.isActivityAvailable() {
             motionManager.startActivityUpdates(to: .main) { [weak self] act in
                 guard let self, let act else { return }
-                if act.automotive { self.activity = "驾车" }
-                else if act.cycling { self.activity = "骑行" }
-                else if act.walking { self.activity = "步行" }
-                else if act.running { self.activity = "跑步" }
-                else { self.activity = "静止" }
+                DispatchQueue.main.async {
+                    if act.automotive { self.activity = "驾车" }
+                    else if act.cycling { self.activity = "骑行" }
+                    else if act.walking { self.activity = "步行" }
+                    else if act.running { self.activity = "跑步" }
+                    else { self.activity = "静止" }
+                }
             }
         }
     }
@@ -77,9 +86,9 @@ final class LocationManager: NSObject, ObservableObject {
 
     /// 结束一次行程，返回汇总并清空累计
     func endTrip() -> TripSummary? {
-        guard !samples.isEmpty else { return nil }
-        let start = samples.first!.timestamp
-        let end = samples.last!.timestamp
+        guard let first = samples.first, let last = samples.last else { return nil }
+        let start = first.timestamp
+        let end = last.timestamp
         let avg = samples.map(\.speedKmh).reduce(0, +) / Double(samples.count)
         let summary = TripSummary(
             startDate: start,
@@ -190,8 +199,10 @@ extension LocationManager: CLLocationManagerDelegate {
 
     func locationManager(_ manager: CLLocationManager, didUpdateHeading newHeading: CLHeading) {
         guard newHeading.headingAccuracy >= 0 else { return }
+        let value = newHeading.trueHeading >= 0 ? newHeading.trueHeading : newHeading.magneticHeading
+        guard value >= 0 else { return }
         DispatchQueue.main.async {
-            self.heading = newHeading.trueHeading >= 0 ? newHeading.trueHeading : newHeading.magneticHeading
+            self.heading = value
         }
     }
 

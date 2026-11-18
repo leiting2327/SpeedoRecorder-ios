@@ -97,6 +97,10 @@ final class TripExportService {
     }
 
     private static func performSave(url: URL, completion: @escaping (Bool, Error?) -> Void) {
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            DispatchQueue.main.async { completion(false, nil) }
+            return
+        }
         PHPhotoLibrary.shared().performChanges {
             PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: url)
         } completionHandler: { ok, err in
