@@ -10,15 +10,18 @@ struct ContentView: View {
     @EnvironmentObject var settings: AppSettings
     @EnvironmentObject var camera: CameraCapture
     @EnvironmentObject var mic: MicCapture
+    @EnvironmentObject var health: HealthChecker
 
     @AppStorage("speedUnit") private var unitRaw: String = SpeedUnit.kmh.rawValue
     @AppStorage("speedLimit") private var speedLimit: Double = 120
+    @AppStorage("showPreview") private var showPreview: Bool = true
 
     @State private var showSettings = false
     @State private var savedVideoURL: URL?
     @State private var showSavedAlert = false
     @State private var lastError: String?
     @State private var showReplay = false
+    @State private var previewImage: UIImage?
 
     private var unit: SpeedUnit { SpeedUnit(rawValue: unitRaw) ?? .kmh }
 
@@ -29,6 +32,14 @@ struct ContentView: View {
 
     private var overSpeed: Bool {
         settings.overSpeedAlert && location.speedKmh > speedLimit
+    }
+
+    /// 刷新录制画面预览（在后台队列合成，避免阻塞主线程）
+    private func refreshPreview() {
+        DispatchQueue.global(qos: .utility).async {
+            let img = recorder.makePreviewImage()
+            DispatchQueue.main.async { previewImage = img }
+        }
     }
 
     var body: some View {
@@ -48,6 +59,14 @@ struct ContentView: View {
                     VStack(spacing: 20) {
                         // 顶部：GPS + 时间 + 地图来源
                         topBar
+
+                        // 自检状态条
+                        healthBar
+
+                        // 录制画面实时预览
+                        if showPreview {
+                            previewCard
+                        }
 
                         // 大车速表
                         speedDial
@@ -104,14 +123,65 @@ struct ContentView: View {
             .onAppear {
                 location.requestPermission()
                 recorder.bind(location: location, map: map, unit: unit)
-                // 摄像头/麦克风不在进入界面时自动拉起，仅在用户开始录制时按需启动
+                // 每次打开自检并自动修复可恢复项
+                health.runChecks(settings: settings)
+                refreshPreview()
             }
             .onReceive(location.$lastLocation) { loc in
                 guard let loc else { return }
                 map.reverseGeocode(loc)
             }
+            // 数据变化时刷新预览帧
+            .onReceive(recorder.$currentSnapshot) { _ in
+                refreshPreview()
+            }
         }
         .preferredColorScheme(.dark)
+    }
+
+    // MARK: - 自检状态条
+    private var healthBar: some View {
+        HStack(spacing: 8) {
+            Image(systemName: health.didRepair ? "wrench.and.screwdriver" : "checkmark.shield")
+                .foregroundColor(health.didRepair ? .orange : .green)
+            Text(health.lastSummary)
+                .font(.caption)
+                .foregroundColor(.secondary)
+            Spacer()
+            Button("详情") { showSettings = true }
+                .font(.caption)
+        }
+        .padding(.horizontal, 4)
+    }
+
+    // MARK: - 录制画面预览
+    private var previewCard: some View {
+        GlassCard {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Text("录制画面预览")
+                        .font(.caption.weight(.semibold))
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    Toggle("", isOn: $showPreview).labelsHidden()
+                }
+                if let previewImage {
+                    Image(uiImage: previewImage)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(maxHeight: 320)
+                        .cornerRadius(20)
+                } else {
+                    RoundedRectangle(cornerRadius: 20)
+                        .fill(Color.white.opacity(0.08))
+                        .frame(height: 200)
+                        .overlay(Text("预览生成中…").foregroundColor(.secondary).font(.caption))
+                }
+                Text("此预览与保存到相册的视频画面一致；位置/大小/透明度在设置→画面布局中调整。")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+        }
     }
 
     // MARK: - 顶部栏

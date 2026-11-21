@@ -6,6 +6,7 @@ struct SettingsView: View {
     @EnvironmentObject var location: LocationManager
     @EnvironmentObject var recorder: VideoRecorder
     @EnvironmentObject var settings: AppSettings
+    @EnvironmentObject var health: HealthChecker
 
     @AppStorage("speedUnit") private var unitRaw: String = SpeedUnit.kmh.rawValue
     @AppStorage("speedLimit") private var speedLimit: Double = 120
@@ -84,6 +85,25 @@ struct SettingsView: View {
                     }
                 }
 
+                Section("自检与修复") {
+                    Text(health.lastSummary)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    ForEach(health.items) { item in
+                        HStack {
+                            Image(systemName: Self.icon(for: item.status))
+                                .foregroundColor(Self.color(for: item.status))
+                            Text(item.name).font(.subheadline)
+                            Spacer()
+                            Text(item.detail).font(.caption).foregroundColor(.secondary)
+                        }
+                    }
+                    Button("重新自检并自动修复") {
+                        health.runChecks(settings: settings)
+                        message = "自检已重新执行"
+                    }
+                }
+
                 Section("关于") {
                     LabeledContent("版本", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0")
                     Text("车速、GPS 信号、位置与轨迹均来自系统定位；录制视频会把这些信息实时烧录到画面。")
@@ -127,6 +147,22 @@ struct SettingsView: View {
         }
         shareURLs = [url]
         showShare = true
+    }
+
+    private static func icon(for status: CheckItem.Status) -> String {
+        switch status {
+        case .ok: return "checkmark.circle"
+        case .repaired: return "wrench.and.screwdriver"
+        case .warning: return "exclamationmark.triangle"
+        }
+    }
+
+    private static func color(for status: CheckItem.Status) -> Color {
+        switch status {
+        case .ok: return .green
+        case .repaired: return .orange
+        case .warning: return .yellow
+        }
     }
 }
 

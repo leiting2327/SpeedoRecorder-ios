@@ -52,6 +52,12 @@ final class AppSettings: ObservableObject {
         set { routeLayoutData = Self.encode(newValue) }
     }
 
+    /// 仅复位画面布局到默认
+    func resetLayouts() {
+        speedLayoutData = Data()
+        routeLayoutData = Data()
+    }
+
     /// 重置为默认（全部打开 + 布局复位）
     func resetToDefaults() {
         cameraPip = true
@@ -60,8 +66,7 @@ final class AppSettings: ObservableObject {
         tripCompare = true
         audio = true
         overSpeedAlert = true
-        speedLayoutData = Data()
-        routeLayoutData = Data()
+        resetLayouts()
     }
 
     private static func encode(_ layout: ComponentLayout) -> Data {

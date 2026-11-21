@@ -8,6 +8,7 @@ struct SpeedoRecorderApp: App {
     @StateObject private var settings = AppSettings.shared
     @StateObject private var camera = CameraCapture()
     @StateObject private var mic = MicCapture()
+    @StateObject private var health = HealthChecker.shared
 
     init() {
         // 捕获未处理的 ObjC 异常，便于在控制台定位；不覆盖系统信号处理
@@ -26,6 +27,7 @@ struct SpeedoRecorderApp: App {
                 .environmentObject(settings)
                 .environmentObject(camera)
                 .environmentObject(mic)
+                .environmentObject(health)
         }
     }
 }

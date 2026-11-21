@@ -243,6 +243,16 @@ final class VideoRecorder: ObservableObject {
         return status == kCVReturnSuccess ? buffer : nil
     }
 
+    /// 生成一帧与录制画面完全一致的预览图（供主界面实时预览布局效果）
+    func makePreviewImage(elapsed: TimeInterval = 0) -> UIImage? {
+        guard let buffer = makePixelBuffer() else { return nil }
+        renderInto(buffer, snapshot: currentSnapshot, elapsed: elapsed)
+        let ci = CIImage(cvPixelBuffer: buffer)
+        let context = CIContext()
+        guard let cg = context.createCGImage(ci, from: ci.extent) else { return nil }
+        return UIImage(cgImage: cg)
+    }
+
     /// 把信息绘制进帧缓冲：摄像头底图（可选）+ 深色遮罩 + 液态玻璃仪表卡片。
     private func renderInto(_ buffer: CVPixelBuffer, snapshot: Snapshot, elapsed: TimeInterval) {
         CVPixelBufferLockBaseAddress(buffer, [])
