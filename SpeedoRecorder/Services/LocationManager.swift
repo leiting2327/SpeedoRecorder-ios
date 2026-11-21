@@ -2,7 +2,7 @@ import Foundation
 import CoreLocation
 import Combine
 
-/// 实时定位管理：通过 CLLocationManager 的连续定位回调驱动车速、GPS 强度、轨迹。
+/// 实时定位管理：通过 CLLocationManager 的连续定位回调驱动车速、GPS 强度。
 /// 不使用定时器轮询，位置一更新就刷新，做到“实时”。
 final class LocationManager: NSObject, ObservableObject {
 
@@ -13,28 +13,16 @@ final class LocationManager: NSObject, ObservableObject {
     @Published var heading: Double = 0
     @Published var altitude: Double = 0
     @Published var horizontalAccuracy: Double = 0
-    @Published var verticalAccuracy: Double = 0
     /// GPS 信号档位 0~4
     @Published var gpsLevel: Int = 0
     @Published var gpsDescription: String = "等待定位"
     @Published var coordinate: CLLocationCoordinate2D?
     @Published var authorizationStatus: CLAuthorizationStatus = .notDetermined
-    @Published var activity: String = "未知"
 
-    /// 本次行程累计里程（米）、累计爬升（米）
+    /// 本次行程累计里程（米）、累计爬升（米）、最高车速
     @Published var tripDistance: Double = 0
     @Published var tripAscent: Double = 0
     @Published var maxSpeedKmh: Double = 0
-    @Published var samples: [TrackPoint] = []
-
-    /// 分段小计里程（米），可单独清零
-    @Published var tripSubMeters: Double = 0
-    /// 上一段行程记录（用于对比）
-    @Published var lastTripDistance: Double = 0
-    @Published var lastTripMaxSpeed: Double = 0
-
-    /// 采样回调（录制视频时订阅）
-    let onSample = PassthroughSubject<TrackPoint, Never>()
 
     private var manager: CLLocationManager?
     private var prevLocation: CLLocation?
@@ -75,47 +63,11 @@ final class LocationManager: NSObject, ObservableObject {
             return
         }
         m.startUpdatingLocation()
-        m.startUpdatingHeading()
-        // 运动状态识别（CoreMotion）在未签名/受限环境可能触发异常，先不启动，活动状态保留“未知”
     }
 
     func stop() {
         manager?.stopUpdatingLocation()
         manager?.stopUpdatingHeading()
-    }
-
-    /// 结束一次行程，返回汇总并清空累计
-    func endTrip() -> TripSummary? {
-        guard let first = samples.first, let last = samples.last else { return nil }
-        let start = first.timestamp
-        let end = last.timestamp
-        let avg = samples.map(\.speedKmh).reduce(0, +) / Double(samples.count)
-        let summary = TripSummary(
-            startDate: start,
-            endDate: end,
-            maxSpeedKmh: maxSpeedKmh,
-            avgSpeedKmh: avg,
-            distanceMeters: tripDistance,
-            ascentMeters: tripAscent,
-            sampleCount: samples.count,
-            provider: "CoreLocation"
-        )
-        // 记录上一段用于对比
-        lastTripDistance = tripDistance
-        lastTripMaxSpeed = maxSpeedKmh
-        samples.removeAll()
-        tripDistance = 0
-        tripAscent = 0
-        maxSpeedKmh = 0
-        tripSubMeters = 0
-        prevAltitude = nil
-        prevLocation = nil
-        return summary
-    }
-
-    /// 仅清零分段小计，不清总里程
-    func resetSubTrip() {
-        tripSubMeters = 0
     }
 
     // MARK: - GPS 档位换算
@@ -139,10 +91,8 @@ extension LocationManager: CLLocationManagerDelegate {
         let st = manager.authorizationStatus
         if st == .authorizedWhenInUse || st == .authorizedAlways {
             manager.startUpdatingLocation()
-            manager.startUpdatingHeading()
         }
     }
-
 
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let location = locations.last else { return }
@@ -158,7 +108,6 @@ extension LocationManager: CLLocationManagerDelegate {
             let step = location.distance(from: prev)
             if step > 0 && step < 500 {
                 tripDistance += step
-                tripSubMeters += step
             }
         }
         // 爬升累计
@@ -178,38 +127,9 @@ extension LocationManager: CLLocationManagerDelegate {
             self.heading = location.course >= 0 ? location.course : self.heading
             self.altitude = location.altitude
             self.horizontalAccuracy = location.horizontalAccuracy
-            self.verticalAccuracy = location.verticalAccuracy
             let level = LocationManager.gpsLevel(accuracy: location.horizontalAccuracy, hasFix: true)
             self.gpsLevel = level
             self.gpsDescription = self.gpsText(level: level, accuracy: location.horizontalAccuracy)
-
-            let point = TrackPoint(
-                timestamp: location.timestamp,
-                latitude: location.coordinate.latitude,
-                longitude: location.coordinate.longitude,
-                altitude: location.altitude,
-                course: location.course,
-                horizontalAccuracy: location.horizontalAccuracy,
-                verticalAccuracy: location.verticalAccuracy,
-                speedMps: mps,
-                speedKmh: kmh,
-                gpsLevel: level,
-                distanceMeters: self.tripDistance,
-                ascentMeters: self.tripAscent,
-                activity: self.activity,
-                provider: "CoreLocation"
-            )
-            self.samples.append(point)
-            self.onSample.send(point)
-        }
-    }
-
-    func locationManager(_ manager: CLLocationManager, didUpdateHeading newHeading: CLHeading) {
-        guard newHeading.headingAccuracy >= 0 else { return }
-        let value = newHeading.trueHeading >= 0 ? newHeading.trueHeading : newHeading.magneticHeading
-        guard value >= 0 else { return }
-        DispatchQueue.main.async {
-            self.heading = value
         }
     }
 

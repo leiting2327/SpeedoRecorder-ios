@@ -76,5 +76,5 @@ jobs:
           VERSION="${{ steps.ver.outputs.marketing }}-${{ steps.ver.outputs.build }}"
           TAG="v${VERSION}"
           gh release create "$TAG" "${{ steps.package.outputs.ipa_name }}" \
-            --title "车速Recorder IPA（未签名）${{ steps.ver.outputs.marketing }} (${{ steps.ver.outputs.build }})" \
-            --notes "未签名 IPA：需用 Sideloadly / AltStore / 爱思助手 以你的 Apple ID 重签名后安装。iOS 17+。功能：实时车速、GPS 信号强度、轨迹记录、行程视频录制（画面烧录车速/GPS/位置/里程/海拔/航向）、高德/百度地图接口可选、CSV/JSON 导出。" || true
+            --title "车速表 IPA（未签名）${{ steps.ver.outputs.marketing }} (${{ steps.ver.outputs.build }})" \
+            --notes "未签名 IPA：需用 Sideloadly / AltStore / 爱思助手 以你的 Apple ID 重签名后安装。iOS 17+。功能：纯车速表竖版界面、实时车速、扇形进度、GPS 信号强度、里程/海拔/最高车速、超速提示、开机演示动画、每次打开自检自动修复。" || true
