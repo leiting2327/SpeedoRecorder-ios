@@ -74,6 +74,11 @@ struct ContentView: View {
                         // 大车速表
                         speedDial
 
+                        // 录制中相机实时预览（车速表下方）
+                        if settings.cameraPip, camera.running {
+                            cameraPreviewStrip
+                        }
+
                         // 指南针 / 转向箭头（开关打开）
                         if settings.compass {
                             compassTile
@@ -163,6 +168,13 @@ struct ContentView: View {
                 .padding(6)
                 .background(.ultraThinMaterial, in: Capsule())
         }
+    }
+
+    // MARK: - 录制中相机预览条
+    private var cameraPreviewStrip: some View {
+        CameraPreviewLayer()
+            .frame(height: 180)
+            .cornerRadius(24)
     }
 
     // MARK: - 车速表盘
@@ -366,11 +378,13 @@ struct ContentView: View {
             lastError = nil
             recorder.camera = camera
             mic.attach(recorder: recorder)
-            // 开始录制前确保摄像头会话已启动（画中画底图需要最新帧）
-            camera.requestAndStart()
+            // 相机/麦克风在后台异步启动，避免阻塞主线程导致卡死
+            DispatchQueue.global(qos: .userInitiated).async {
+                self.camera.requestAndStart()
+                if self.settings.audio { self.mic.requestAndStart() }
+            }
             do {
                 try recorder.start()
-                if settings.audio { mic.requestAndStart() }
             } catch {
                 recorder.stop { _ in }
                 lastError = "无法开始录制：\(error.localizedDescription)"

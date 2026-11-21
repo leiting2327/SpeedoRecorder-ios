@@ -20,7 +20,8 @@ final class VideoRecorder: ObservableObject {
     private var videoInput: AVAssetWriterInput?
     private var audioInput: AVAssetWriterInput?
     private var pixelBufferAdaptor: AVAssetWriterInputPixelBufferAdaptor?
-    private var displayLink: CADisplayLink?
+    private var renderTimer: Timer?
+    private var renderQueue = DispatchQueue(label: "recorder.render", qos: .userInitiated)
     private var startTime: Date?
     private var frameCount: Int = 0
     private var outputURL: URL?
@@ -110,8 +111,8 @@ final class VideoRecorder: ObservableObject {
     // MARK: - 开始 / 停止
     func start() throws {
         // 清理上一次残留
-        displayLink?.invalidate()
-        displayLink = nil
+        renderTimer?.invalidate()
+        renderTimer = nil
         writer = nil
         videoInput = nil
         audioInput = nil
@@ -170,17 +171,19 @@ final class VideoRecorder: ObservableObject {
         self.recordDuration = 0
         self.recordSize = 0
 
-        let link = CADisplayLink(target: self, selector: #selector(renderFrame))
-        link.preferredFrameRateRange = CAFrameRateRange(minimum: Float(fps / 2), maximum: Float(fps), preferred: Float(fps))
-        link.add(to: .main, forMode: .common)
-        self.displayLink = link
+        // 用后台定时器按 30fps 推送帧，避免在主线程做重离屏绘制导致界面卡死
+        let timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
+            self?.renderFrame()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        self.renderTimer = timer
 
         isRecording = true
     }
 
     func stop(completion: @escaping (URL?) -> Void) {
-        displayLink?.invalidate()
-        displayLink = nil
+        renderTimer?.invalidate()
+        renderTimer = nil
         guard let writer, let input = videoInput else {
             isRecording = false
             completion(nil)
@@ -210,24 +213,30 @@ final class VideoRecorder: ObservableObject {
     }
 
     // MARK: - 逐帧渲染
-    @objc private func renderFrame() {
-        guard let writer, writer.status == .writing,
-              let adaptor = pixelBufferAdaptor,
-              let input = videoInput,
-              input.isReadyForMoreMediaData else { return }
+    private func renderFrame() {
+        renderQueue.async { [weak self] in
+            guard let self,
+                  let writer = self.writer, writer.status == .writing,
+                  let adaptor = self.pixelBufferAdaptor,
+                  let input = self.videoInput,
+                  input.isReadyForMoreMediaData else { return }
 
-        let now = Date()
-        if startTime == nil { startTime = now }
-        guard let start = startTime else { return }
-        let elapsed = now.timeIntervalSince(start)
-        recordDuration = elapsed
+            let now = Date()
+            if self.startTime == nil { self.startTime = now }
+            guard let start = self.startTime else { return }
+            let elapsed = now.timeIntervalSince(start)
 
-        guard let buffer = makePixelBuffer() else { return }
-        renderInto(buffer, snapshot: currentSnapshot, elapsed: elapsed)
+            guard let buffer = self.makePixelBuffer() else { return }
+            self.renderInto(buffer, snapshot: self.currentSnapshot, elapsed: elapsed)
 
-        let time = CMTime(seconds: max(elapsed, 0), preferredTimescale: CMTimeScale(fps))
-        if adaptor.append(buffer, withPresentationTime: time) {
-            frameCount += 1
+            let time = CMTime(seconds: max(elapsed, 0), preferredTimescale: CMTimeScale(self.fps))
+            if adaptor.append(buffer, withPresentationTime: time) {
+                self.frameCount += 1
+            }
+
+            DispatchQueue.main.async {
+                self.recordDuration = elapsed
+            }
         }
     }
 
