@@ -376,6 +376,7 @@ struct CameraPreviewLayer: UIViewRepresentable {
         uiView.videoPreviewLayer?.session = camera.sessionForPreview
     }
 
+
     final class PreviewView: UIView {
         override class var layerClass: AnyClass { AVCaptureVideoPreviewLayer.self }
         var videoPreviewLayer: AVCaptureVideoPreviewLayer? {

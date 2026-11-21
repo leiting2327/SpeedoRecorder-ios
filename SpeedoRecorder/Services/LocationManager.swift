@@ -37,19 +37,33 @@ final class LocationManager: NSObject, ObservableObject {
     /// 采样回调（录制视频时订阅）
     let onSample = PassthroughSubject<TrackPoint, Never>()
 
-    private let manager = CLLocationManager()
-    private let motionManager = CMMotionActivityManager()
+    private var manager: CLLocationManager?
+    private var motionManager: CMMotionActivityManager?
     private var prevLocation: CLLocation?
     private var prevAltitude: Double?
 
     override init() {
         super.init()
-        manager.delegate = self
-        manager.desiredAccuracy = kCLLocationAccuracyBestForNavigation
-        manager.distanceFilter = kCLDistanceFilterNone      // 任何位置变化都回调
-        manager.pausesLocationUpdatesAutomatically = false
-        manager.allowsBackgroundLocationUpdates = true
-        authorizationStatus = manager.authorizationStatus
+        // 定位管理器与运动管理器均延迟到首次需要时才创建，避免启动期拉起定位服务
+    }
+
+    private func ensureManager() -> CLLocationManager {
+        if let m = manager { return m }
+        let m = CLLocationManager()
+        m.delegate = self
+        m.desiredAccuracy = kCLLocationAccuracyBestForNavigation
+        m.distanceFilter = kCLDistanceFilterNone      // 任何位置变化都回调
+        m.pausesLocationUpdatesAutomatically = false
+        manager = m
+        authorizationStatus = m.authorizationStatus
+        return m
+    }
+
+    private func ensureMotionManager() -> CMMotionActivityManager {
+        if let mm = motionManager { return mm }
+        let mm = CMMotionActivityManager()
+        motionManager = mm
+        return mm
     }
 
     // MARK: - 权限与启动
@@ -61,18 +75,20 @@ final class LocationManager: NSObject, ObservableObject {
     }
 
     private func startLocation() {
-        let status = manager.authorizationStatus
+        let m = ensureManager()
+        let status = m.authorizationStatus
         if status == .notDetermined {
-            manager.requestWhenInUseAuthorization()
+            m.requestWhenInUseAuthorization()
         }
-        guard status == .authorized || status == .notDetermined else {
+        guard status == .authorizedWhenInUse || status == .authorizedAlways || status == .notDetermined else {
             gpsDescription = "定位权限未开启，请在系统设置中允许"
             return
         }
-        manager.startUpdatingLocation()
-        manager.startUpdatingHeading()
+        m.startUpdatingLocation()
+        m.startUpdatingHeading()
         if CMMotionActivityManager.isActivityAvailable() {
-            motionManager.startActivityUpdates(to: .main) { [weak self] act in
+            let mm = ensureMotionManager()
+            mm.startActivityUpdates(to: .main) { [weak self] act in
                 guard let self, let act else { return }
                 DispatchQueue.main.async {
                     if act.automotive { self.activity = "驾车" }
@@ -86,9 +102,9 @@ final class LocationManager: NSObject, ObservableObject {
     }
 
     func stop() {
-        manager.stopUpdatingLocation()
-        manager.stopUpdatingHeading()
-        motionManager.stopActivityUpdates()
+        manager?.stopUpdatingLocation()
+        manager?.stopUpdatingHeading()
+        motionManager?.stopActivityUpdates()
     }
 
     /// 结束一次行程，返回汇总并清空累计
@@ -142,7 +158,14 @@ extension LocationManager: CLLocationManagerDelegate {
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         authorizationStatus = manager.authorizationStatus
+        // 授权变为允许后再启动更新
+        let st = manager.authorizationStatus
+        if st == .authorizedWhenInUse || st == .authorizedAlways {
+            manager.startUpdatingLocation()
+            manager.startUpdatingHeading()
+        }
     }
+
 
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let location = locations.last else { return }

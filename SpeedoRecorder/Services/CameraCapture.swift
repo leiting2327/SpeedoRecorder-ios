@@ -12,7 +12,7 @@ final class CameraCapture: NSObject, ObservableObject {
     @Published var isAuthorized: Bool = false
     @Published var previewLayer: AVCaptureVideoPreviewLayer?
 
-    private let session = AVCaptureSession()
+    private var session: AVCaptureSession?
     private let sessionQueue = DispatchQueue(label: "camera.session", qos: .userInitiated)
     private var videoOutput: AVCaptureVideoDataOutput?
     private var latestBuffer: CVPixelBuffer?
@@ -22,8 +22,8 @@ final class CameraCapture: NSObject, ObservableObject {
     /// 是否已启动
     private(set) var running = false
 
-    /// 供预览图层绑定的会话
-    var sessionForPreview: AVCaptureSession { session }
+    /// 供预览图层绑定的会话（未启动时返回 nil，界面做安全降级）
+    var sessionForPreview: AVCaptureSession? { session }
 
     // MARK: - 权限与启动
     func requestAndStart() {
@@ -45,24 +45,26 @@ final class CameraCapture: NSObject, ObservableObject {
     private func startSession() {
         sessionQueue.async { [weak self] in
             guard let self else { return }
+            let session = self.session ?? AVCaptureSession()
+            self.session = session
             guard !self.configured else {
-                self.session.startRunning()
+                session.startRunning()
                 self.running = true
                 return
             }
-            self.session.beginConfiguration()
-            self.session.sessionPreset = .medium
+            session.beginConfiguration()
+            session.sessionPreset = .medium
 
             guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) else {
-                self.session.commitConfiguration()
+                session.commitConfiguration()
                 return
             }
             guard let input = try? AVCaptureDeviceInput(device: device),
-                  self.session.canAddInput(input) else {
-                self.session.commitConfiguration()
+                  session.canAddInput(input) else {
+                session.commitConfiguration()
                 return
             }
-            self.session.addInput(input)
+            session.addInput(input)
 
             let output = AVCaptureVideoDataOutput()
             output.alwaysDiscardsLateVideoFrames = true
@@ -70,18 +72,18 @@ final class CameraCapture: NSObject, ObservableObject {
                 kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
             ]
             output.setSampleBufferDelegate(self, queue: self.sessionQueue)
-            if self.session.canAddOutput(output) {
-                self.session.addOutput(output)
+            if session.canAddOutput(output) {
+                session.addOutput(output)
                 self.videoOutput = output
             }
 
-            self.session.commitConfiguration()
+            session.commitConfiguration()
             self.configured = true
-            self.session.startRunning()
+            session.startRunning()
             self.running = true
 
             DispatchQueue.main.async {
-                let layer = AVCaptureVideoPreviewLayer(session: self.session)
+                let layer = AVCaptureVideoPreviewLayer(session: session)
                 layer.videoGravity = .resizeAspectFill
                 self.previewLayer = layer
                 self.isAuthorized = true
@@ -92,7 +94,7 @@ final class CameraCapture: NSObject, ObservableObject {
     func stop() {
         sessionQueue.async { [weak self] in
             guard let self else { return }
-            self.session.stopRunning()
+            self.session?.stopRunning()
             self.running = false
         }
     }
