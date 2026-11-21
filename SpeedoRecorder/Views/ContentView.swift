@@ -14,14 +14,12 @@ struct ContentView: View {
 
     @AppStorage("speedUnit") private var unitRaw: String = SpeedUnit.kmh.rawValue
     @AppStorage("speedLimit") private var speedLimit: Double = 120
-    @AppStorage("showPreview") private var showPreview: Bool = true
 
     @State private var showSettings = false
     @State private var savedVideoURL: URL?
     @State private var showSavedAlert = false
     @State private var lastError: String?
     @State private var showReplay = false
-    @State private var previewImage: UIImage?
     /// 开机演示动画当前演示车速（0 → 25 → 0），动画结束后回到真实车速
     @State private var demoSpeed: Double = 0
     @State private var demoDone = false
@@ -35,14 +33,6 @@ struct ContentView: View {
 
     private var overSpeed: Bool {
         settings.overSpeedAlert && location.speedKmh > speedLimit
-    }
-
-    /// 刷新录制画面预览（在后台队列合成，避免阻塞主线程）
-    private func refreshPreview() {
-        DispatchQueue.global(qos: .utility).async {
-            let img = recorder.makePreviewImage()
-            DispatchQueue.main.async { previewImage = img }
-        }
     }
 
     /// 开机演示动画：表盘从 0 升到 25，再回到 0，之后接入真实车速
@@ -80,11 +70,6 @@ struct ContentView: View {
 
                         // 自检状态条
                         healthBar
-
-                        // 录制画面实时预览
-                        if showPreview {
-                            previewCard
-                        }
 
                         // 大车速表
                         speedDial
@@ -143,16 +128,11 @@ struct ContentView: View {
                 recorder.bind(location: location, map: map, unit: unit)
                 // 每次打开自检并自动修复可恢复项
                 health.runChecks(settings: settings)
-                refreshPreview()
                 runDemoAnimation()
             }
             .onReceive(location.$lastLocation) { loc in
                 guard let loc else { return }
                 map.reverseGeocode(loc)
-            }
-            // 数据变化时刷新预览帧
-            .onReceive(recorder.$currentSnapshot) { _ in
-                refreshPreview()
             }
         }
         .preferredColorScheme(.dark)
@@ -171,36 +151,6 @@ struct ContentView: View {
                 .font(.caption)
         }
         .padding(.horizontal, 4)
-    }
-
-    // MARK: - 录制画面预览
-    private var previewCard: some View {
-        GlassCard {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack {
-                    Text("录制画面预览")
-                        .font(.caption.weight(.semibold))
-                        .foregroundColor(.secondary)
-                    Spacer()
-                    Toggle("", isOn: $showPreview).labelsHidden()
-                }
-                if let previewImage {
-                    Image(uiImage: previewImage)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(maxHeight: 320)
-                        .cornerRadius(20)
-                } else {
-                    RoundedRectangle(cornerRadius: 20)
-                        .fill(Color.white.opacity(0.08))
-                        .frame(height: 200)
-                        .overlay(Text("预览生成中…").foregroundColor(.secondary).font(.caption))
-                }
-                Text("此预览与保存到相册的视频画面一致；位置/大小/透明度在设置→画面布局中调整。")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-            }
-        }
     }
 
     // MARK: - 顶部栏
@@ -234,7 +184,7 @@ struct ContentView: View {
                         .foregroundColor(.red)
                 }
                 SpeedArc(progress: min(displayedDialSpeed / 200, 1), over: overSpeed)
-                    .frame(height: 24)
+                    .frame(height: 110)
             }
             .frame(maxWidth: .infinity)
         }
@@ -489,17 +439,54 @@ struct MetricTile: View {
     }
 }
 
+/// 车速扇形进度：上半圆弧形刻度，按进度填充扇形弧
 struct SpeedArc: View {
     let progress: Double
     let over: Bool
+
+    private let startAngle = Angle(degrees: 180)
+    private let endAngle = Angle(degrees: 0)
+
     var body: some View {
         GeometryReader { geo in
-            Capsule()
-                .fill(Color.white.opacity(0.12))
-            Capsule()
-                .fill(over ? Color.red : Color.green)
-                .frame(width: geo.size.width * progress)
+            let width = geo.size.width
+            let height = geo.size.height
+            let radius = min(width, height) / 1.0
+            let center = CGPoint(x: width / 2, y: height)
+            let clamped = min(max(progress, 0), 1)
+
+            ZStack {
+                // 背景半圆弧
+                ArcShape(start: startAngle, end: endAngle)
+                    .stroke(Color.white.opacity(0.12), lineWidth: 14)
+                // 进度扇形弧
+                ArcShape(start: startAngle, end: endAngle)
+                    .stroke(over ? Color.red : Color.green, lineWidth: 14)
+                    .trim(from: 0, to: clamped)
+                // 进度端点圆点
+                Circle()
+                    .fill(over ? Color.red : Color.green)
+                    .frame(width: 14, height: 14)
+                    .position(
+                        x: center.x + radius * cos(Angle(degrees: 180 - 180 * clamped).radians),
+                        y: center.y - radius * sin(Angle(degrees: 180 - 180 * clamped).radians)
+                    )
+            }
         }
+    }
+}
+
+/// 上半圆弧形路径
+struct ArcShape: Shape {
+    let start: Angle
+    let end: Angle
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        let center = CGPoint(x: rect.midX, y: rect.maxY)
+        let radius = min(rect.width, rect.height)
+        path.addArc(center: center, radius: radius, startAngle: start, endAngle: end, clockwise: false)
+        return path
     }
 }
 

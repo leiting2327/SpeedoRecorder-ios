@@ -14,6 +14,7 @@ struct SettingsView: View {
     @State private var shareURLs: [URL] = []
     @State private var showShare = false
     @State private var message: String?
+    @State private var previewImage: UIImage?
 
     var body: some View {
         NavigationStack {
@@ -76,6 +77,25 @@ struct SettingsView: View {
                     }
                 }
 
+                Section("录制画面预览") {
+                    if let previewImage {
+                        Image(uiImage: previewImage)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(maxHeight: 320)
+                            .cornerRadius(20)
+                    } else {
+                        RoundedRectangle(cornerRadius: 20)
+                            .fill(Color.white.opacity(0.08))
+                            .frame(height: 200)
+                            .overlay(Text("预览生成中…").foregroundColor(.secondary).font(.caption))
+                    }
+                    Text("此预览与保存到相册的视频画面一致；下方可调整组件位置、大小、透明度。")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                    Button("刷新预览") { refreshPreview() }
+                }
+
                 Section("画面布局（录制视频内组件）") {
                     LayoutSliderGroup(title: "车速组件", layout: settings.speedLayout) { newLayout in
                         settings.speedLayout = newLayout
@@ -112,6 +132,7 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle("设置")
+            .onAppear { refreshPreview() }
             .sheet(isPresented: $showShare) {
                 ShareSheet(urls: shareURLs)
             }
@@ -147,6 +168,13 @@ struct SettingsView: View {
         }
         shareURLs = [url]
         showShare = true
+    }
+
+    private func refreshPreview() {
+        DispatchQueue.global(qos: .utility).async {
+            let img = recorder.makePreviewImage()
+            DispatchQueue.main.async { previewImage = img }
+        }
     }
 
     private static func icon(for status: CheckItem.Status) -> String {
