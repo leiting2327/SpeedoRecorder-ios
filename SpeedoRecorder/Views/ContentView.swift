@@ -22,6 +22,9 @@ struct ContentView: View {
     @State private var lastError: String?
     @State private var showReplay = false
     @State private var previewImage: UIImage?
+    /// 开机演示动画当前演示车速（0 → 25 → 0），动画结束后回到真实车速
+    @State private var demoSpeed: Double = 0
+    @State private var demoDone = false
 
     private var unit: SpeedUnit { SpeedUnit(rawValue: unitRaw) ?? .kmh }
 
@@ -39,6 +42,21 @@ struct ContentView: View {
         DispatchQueue.global(qos: .utility).async {
             let img = recorder.makePreviewImage()
             DispatchQueue.main.async { previewImage = img }
+        }
+    }
+
+    /// 开机演示动画：表盘从 0 升到 25，再回到 0，之后接入真实车速
+    private func runDemoAnimation() {
+        demoDone = false
+        demoSpeed = 0
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            withAnimation(.easeInOut(duration: 1.1)) { demoSpeed = 25 }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.1) {
+                withAnimation(.easeInOut(duration: 1.1)) { demoSpeed = 0 }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.1) {
+                    demoDone = true
+                }
+            }
         }
     }
 
@@ -126,6 +144,7 @@ struct ContentView: View {
                 // 每次打开自检并自动修复可恢复项
                 health.runChecks(settings: settings)
                 refreshPreview()
+                runDemoAnimation()
             }
             .onReceive(location.$lastLocation) { loc in
                 guard let loc else { return }
@@ -197,10 +216,12 @@ struct ContentView: View {
     }
 
     // MARK: - 车速表盘
+    private var displayedDialSpeed: Double { demoDone ? displaySpeed : demoSpeed }
+
     private var speedDial: some View {
         GlassCard {
             VStack(spacing: 8) {
-                Text(String(format: "%.0f", displaySpeed))
+                Text(String(format: "%.0f", displayedDialSpeed))
                     .font(.system(size: 120, weight: .heavy, design: .rounded))
                     .monospacedDigit()
                     .foregroundColor(overSpeed ? .red : .white)
@@ -212,7 +233,7 @@ struct ContentView: View {
                         .font(.subheadline.weight(.semibold))
                         .foregroundColor(.red)
                 }
-                SpeedArc(progress: min(location.speedKmh / 200, 1), over: overSpeed)
+                SpeedArc(progress: min(displayedDialSpeed / 200, 1), over: overSpeed)
                     .frame(height: 24)
             }
             .frame(maxWidth: .infinity)
