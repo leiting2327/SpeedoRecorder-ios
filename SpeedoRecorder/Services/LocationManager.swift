@@ -65,23 +65,18 @@ final class LocationManager: NSObject, ObservableObject {
     }
 
     private func startLocation() {
-        // 整段包在容错里，任一系统服务在受限环境下异常都不致 App 闪退
-        do {
-            let m = ensureManager()
-            let status = m.authorizationStatus
-            if status == .notDetermined {
-                m.requestWhenInUseAuthorization()
-            }
-            guard status == .authorizedWhenInUse || status == .authorizedAlways || status == .notDetermined else {
-                gpsDescription = "定位权限未开启，请在系统设置中允许"
-                return
-            }
-            m.startUpdatingLocation()
-            m.startUpdatingHeading()
-            // 运动状态识别（CoreMotion）在未签名/受限环境可能触发异常，先不启动，活动状态保留“未知”
-        } catch {
-            gpsDescription = "定位服务暂不可用"
+        let m = ensureManager()
+        let status = m.authorizationStatus
+        if status == .notDetermined {
+            m.requestWhenInUseAuthorization()
         }
+        guard status == .authorizedWhenInUse || status == .authorizedAlways || status == .notDetermined else {
+            gpsDescription = "定位权限未开启，请在系统设置中允许"
+            return
+        }
+        m.startUpdatingLocation()
+        m.startUpdatingHeading()
+        // 运动状态识别（CoreMotion）在未签名/受限环境可能触发异常，先不启动，活动状态保留“未知”
     }
 
     func stop() {
