@@ -434,30 +434,22 @@ struct CompassDial: View {
     }
 }
 
-/// 内嵌地图预览（Apple MapKit；高德/百度 Key 用于逆地理与外链打开）
-struct MiniMap: View {
+/// 内嵌地图预览：用 UIKit MKMapView 包装，规避 SwiftUI Map 初始化器在新系统上的兼容问题
+struct MiniMap: UIViewRepresentable {
     let coordinate: CLLocationCoordinate2D?
-    @State private var region = MKCoordinateRegion(
-        center: CLLocationCoordinate2D(latitude: 39.9042, longitude: 116.4074),
-        span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
-    )
-    @State private var lastLat: Double = 0
-    @State private var lastLon: Double = 0
 
-    var body: some View {
-        Map(coordinateRegion: $region, showsUserLocation: true)
-            .onChange(of: coordinate?.latitude ?? 0) { _, lat in
-                updateRegion(lat: lat, lon: coordinate?.longitude ?? lastLon)
-            }
-            .onChange(of: coordinate?.longitude ?? 0) { _, lon in
-                updateRegion(lat: coordinate?.latitude ?? lastLat, lon: lon)
-            }
+    func makeUIView(context: Context) -> MKMapView {
+        let map = MKMapView()
+        map.mapType = .standard
+        map.showsUserLocation = true
+        map.isUserInteractionEnabled = true
+        return map
     }
 
-    private func updateRegion(lat: Double, lon: Double) {
-        guard abs(lat - lastLat) > 0.0001 || abs(lon - lastLon) > 0.0001 else { return }
-        lastLat = lat; lastLon = lon
-        region = MKCoordinateRegion(center: CLLocationCoordinate2D(latitude: lat, longitude: lon),
-                                    span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01))
+    func updateUIView(_ map: MKMapView, context: Context) {
+        guard let coord = coordinate, CLLocationCoordinate2DIsValid(coord) else { return }
+        let region = MKCoordinateRegion(center: coord,
+                                        span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01))
+        map.setRegion(region, animated: true)
     }
 }
