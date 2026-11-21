@@ -444,25 +444,31 @@ struct SpeedArc: View {
     let progress: Double
     let over: Bool
 
-    private let startAngle = Angle(degrees: 180)
-    private let endAngle = Angle(degrees: 0)
-
     var body: some View {
         GeometryReader { geo in
             let width = geo.size.width
             let height = geo.size.height
-            let radius = min(width, height) / 1.0
+            let radius = min(width, height)
             let center = CGPoint(x: width / 2, y: height)
             let clamped = min(max(progress, 0), 1)
 
             ZStack {
                 // 背景半圆弧
-                ArcShape(start: startAngle, end: endAngle)
-                    .stroke(Color.white.opacity(0.12), lineWidth: 14)
+                Path { p in
+                    p.addArc(center: center, radius: radius,
+                             startAngle: .degrees(180), endAngle: .degrees(0), clockwise: false)
+                }
+                .stroke(Color.white.opacity(0.12), lineWidth: 14)
+
                 // 进度扇形弧
-                ArcShape(start: startAngle, end: endAngle)
-                    .stroke(over ? Color.red : Color.green, lineWidth: 14)
-                    .trim(from: 0, to: clamped)
+                Path { p in
+                    p.addArc(center: center, radius: radius,
+                             startAngle: .degrees(180),
+                             endAngle: .degrees(180 - 180 * clamped),
+                             clockwise: false)
+                }
+                .stroke(over ? Color.red : Color.green, lineWidth: 14)
+
                 // 进度端点圆点
                 Circle()
                     .fill(over ? Color.red : Color.green)
@@ -473,20 +479,6 @@ struct SpeedArc: View {
                     )
             }
         }
-    }
-}
-
-/// 上半圆弧形路径
-struct ArcShape: Shape {
-    let start: Angle
-    let end: Angle
-
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        let center = CGPoint(x: rect.midX, y: rect.maxY)
-        let radius = min(rect.width, rect.height)
-        path.addArc(center: center, radius: radius, startAngle: start, endAngle: end, clockwise: false)
-        return path
     }
 }
 
