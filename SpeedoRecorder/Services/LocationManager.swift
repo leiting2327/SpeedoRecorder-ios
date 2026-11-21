@@ -1,7 +1,6 @@
 import Foundation
 import CoreLocation
 import Combine
-import CoreMotion
 
 /// 实时定位管理：通过 CLLocationManager 的连续定位回调驱动车速、GPS 强度、轨迹。
 /// 不使用定时器轮询，位置一更新就刷新，做到“实时”。
@@ -38,73 +37,56 @@ final class LocationManager: NSObject, ObservableObject {
     let onSample = PassthroughSubject<TrackPoint, Never>()
 
     private var manager: CLLocationManager?
-    private var motionManager: CMMotionActivityManager?
     private var prevLocation: CLLocation?
     private var prevAltitude: Double?
 
     override init() {
         super.init()
-        // 定位管理器与运动管理器均延迟到首次需要时才创建，避免启动期拉起定位服务
+        // 定位管理器延迟到首次需要时才创建，避免启动期拉起定位服务
     }
 
     private func ensureManager() -> CLLocationManager {
         if let m = manager { return m }
         let m = CLLocationManager()
         m.delegate = self
-        m.desiredAccuracy = kCLLocationAccuracyBestForNavigation
+        m.desiredAccuracy = kCLLocationAccuracyBest
         m.distanceFilter = kCLDistanceFilterNone      // 任何位置变化都回调
-        m.pausesLocationUpdatesAutomatically = false
         manager = m
         authorizationStatus = m.authorizationStatus
         return m
     }
 
-    private func ensureMotionManager() -> CMMotionActivityManager {
-        if let mm = motionManager { return mm }
-        let mm = CMMotionActivityManager()
-        motionManager = mm
-        return mm
-    }
-
     // MARK: - 权限与启动
     /// 首次进入界面时延迟调用，避免启动阶段触发权限弹窗/定位服务导致崩溃
     func requestPermission() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
             self?.startLocation()
         }
     }
 
     private func startLocation() {
-        let m = ensureManager()
-        let status = m.authorizationStatus
-        if status == .notDetermined {
-            m.requestWhenInUseAuthorization()
-        }
-        guard status == .authorizedWhenInUse || status == .authorizedAlways || status == .notDetermined else {
-            gpsDescription = "定位权限未开启，请在系统设置中允许"
-            return
-        }
-        m.startUpdatingLocation()
-        m.startUpdatingHeading()
-        if CMMotionActivityManager.isActivityAvailable() {
-            let mm = ensureMotionManager()
-            mm.startActivityUpdates(to: .main) { [weak self] act in
-                guard let self, let act else { return }
-                DispatchQueue.main.async {
-                    if act.automotive { self.activity = "驾车" }
-                    else if act.cycling { self.activity = "骑行" }
-                    else if act.walking { self.activity = "步行" }
-                    else if act.running { self.activity = "跑步" }
-                    else { self.activity = "静止" }
-                }
+        // 整段包在容错里，任一系统服务在受限环境下异常都不致 App 闪退
+        do {
+            let m = ensureManager()
+            let status = m.authorizationStatus
+            if status == .notDetermined {
+                m.requestWhenInUseAuthorization()
             }
+            guard status == .authorizedWhenInUse || status == .authorizedAlways || status == .notDetermined else {
+                gpsDescription = "定位权限未开启，请在系统设置中允许"
+                return
+            }
+            m.startUpdatingLocation()
+            m.startUpdatingHeading()
+            // 运动状态识别（CoreMotion）在未签名/受限环境可能触发异常，先不启动，活动状态保留“未知”
+        } catch {
+            gpsDescription = "定位服务暂不可用"
         }
     }
 
     func stop() {
         manager?.stopUpdatingLocation()
         manager?.stopUpdatingHeading()
-        motionManager?.stopActivityUpdates()
     }
 
     /// 结束一次行程，返回汇总并清空累计

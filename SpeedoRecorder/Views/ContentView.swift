@@ -104,11 +104,7 @@ struct ContentView: View {
             .onAppear {
                 location.requestPermission()
                 recorder.bind(location: location, map: map, unit: unit)
-                if settings.cameraPip {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                        camera.requestAndStart()
-                    }
-                }
+                // 摄像头/麦克风不在进入界面时自动拉起，仅在用户开始录制时按需启动
             }
             .onReceive(location.$lastLocation) { loc in
                 guard let loc else { return }
