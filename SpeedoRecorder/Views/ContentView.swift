@@ -325,6 +325,8 @@ struct ContentView: View {
             lastError = nil
             recorder.camera = camera
             mic.attach(recorder: recorder)
+            // 开始录制前确保摄像头会话已启动（画中画底图需要最新帧）
+            camera.requestAndStart()
             do {
                 try recorder.start()
                 if settings.audio { mic.requestAndStart() }

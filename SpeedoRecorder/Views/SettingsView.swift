@@ -75,6 +75,15 @@ struct SettingsView: View {
                     }
                 }
 
+                Section("画面布局（录制视频内组件）") {
+                    LayoutSliderGroup(title: "车速组件", layout: settings.speedLayout) { newLayout in
+                        settings.speedLayout = newLayout
+                    }
+                    LayoutSliderGroup(title: "起终点组件", layout: settings.routeLayout) { newLayout in
+                        settings.routeLayout = newLayout
+                    }
+                }
+
                 Section("关于") {
                     LabeledContent("版本", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0")
                     Text("车速、GPS 信号、位置与轨迹均来自系统定位；录制视频会把这些信息实时烧录到画面。")
@@ -128,4 +137,48 @@ struct ShareSheet: UIViewControllerRepresentable {
         UIActivityViewController(activityItems: urls, applicationActivities: nil)
     }
     func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
+}
+
+/// 单个组件的位置 / 大小 / 透明度滑块组
+struct LayoutSliderGroup: View {
+    let title: String
+    let layout: ComponentLayout
+    let onChange: (ComponentLayout) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title).font(.subheadline.weight(.semibold))
+
+            sliderRow(label: "水平位置", value: Binding(
+                get: { layout.centerX },
+                set: { onChange(ComponentLayout(centerX: $0, centerY: layout.centerY, scale: layout.scale, opacity: layout.opacity)) }
+            ), range: 0.05...0.95)
+
+            sliderRow(label: "垂直位置", value: Binding(
+                get: { layout.centerY },
+                set: { onChange(ComponentLayout(centerX: layout.centerX, centerY: $0, scale: layout.scale, opacity: layout.opacity)) }
+            ), range: 0.05...0.95)
+
+            sliderRow(label: "大小", value: Binding(
+                get: { layout.scale },
+                set: { onChange(ComponentLayout(centerX: layout.centerX, centerY: layout.centerY, scale: $0, opacity: layout.opacity)) }
+            ), range: 0.5...2.0)
+
+            sliderRow(label: "透明度", value: Binding(
+                get: { layout.opacity },
+                set: { onChange(ComponentLayout(centerX: layout.centerX, centerY: layout.centerY, scale: layout.scale, opacity: $0)) }
+            ), range: 0.1...1.0)
+        }
+        .padding(.vertical, 6)
+    }
+
+    private func sliderRow(label: String, value: Binding<Double>, range: ClosedRange<Double>) -> some View {
+        HStack {
+            Text(label).font(.caption).foregroundColor(.secondary).frame(width: 70, alignment: .leading)
+            Slider(value: value, in: range)
+            Text(String(format: "%.2f", value.wrappedValue))
+                .font(.caption.monospacedDigit())
+                .frame(width: 44, alignment: .trailing)
+        }
+    }
 }

@@ -58,6 +58,11 @@ final class VideoRecorder: ObservableObject {
         var sampleCount: Int = 0
         var timestamp: Date = Date()
         var providerName: String = "CoreLocation"
+        /// 行程起点 / 终点坐标（起终点组件展示用）
+        var startLat: Double = 0
+        var startLon: Double = 0
+        var endLat: Double = 0
+        var endLon: Double = 0
     }
 
     /// 订阅定位与地图服务，持续刷新录制画面用到的数据
@@ -82,6 +87,8 @@ final class VideoRecorder: ObservableObject {
             let (v3, alt) = v4
             let (v2, gps) = v3
             let (s, lvl) = v2
+            let start = location.samples.first
+            let end = location.samples.last
             return Snapshot(speedKmh: s, unit: unit, gpsLevel: lvl, gpsText: gps,
                      address: map.addressText,
                      latitude: coord?.latitude ?? 0, longitude: coord?.longitude ?? 0,
@@ -92,7 +99,9 @@ final class VideoRecorder: ObservableObject {
                      prevMaxSpeed: location.lastTripMaxSpeed,
                      sampleCount: location.samples.count,
                      timestamp: Date(),
-                     providerName: map.provider.rawValue)
+                     providerName: map.provider.rawValue,
+                     startLat: start?.latitude ?? 0, startLon: start?.longitude ?? 0,
+                     endLat: end?.latitude ?? 0, endLon: end?.longitude ?? 0)
         }
         .assign(to: \.currentSnapshot, on: self)
         .store(in: &cancellables)
@@ -278,21 +287,25 @@ final class VideoRecorder: ObservableObject {
                      color: .white)
         }
 
-        // 大车速表（液态玻璃卡片）
-        let card = CGRect(x: 60, y: 220, width: w - 120, height: 620)
-        drawGlassCard(context: ctx, rect: card)
+        // 大车速表（液态玻璃卡片）：位置/大小/透明度由车速组件布局控制
+        let speedLayout = settings.speedLayout
+        let baseCard = CGRect(x: 60, y: 220, width: w - 120, height: 620)
+        let speedCard = placeRect(base: baseCard, layout: speedLayout, canvas: canvasSize)
+        drawGlassCard(context: ctx, rect: speedCard, opacity: speedLayout.opacity)
 
         let speedText = String(format: "%.0f", displayedSpeed(snapshot))
-        drawCenteredText(context: ctx, text: speedText, in: CGRect(x: card.minX, y: card.minY + 90, width: card.width, height: 320),
-                         font: UIFont.systemFont(ofSize: 220, weight: .heavy), color: .white)
+        drawCenteredText(context: ctx, text: speedText, in: CGRect(x: speedCard.minX, y: speedCard.minY + 90, width: speedCard.width, height: 320),
+                         font: UIFont.systemFont(ofSize: 220 * speedLayout.scale, weight: .heavy),
+                         color: .white.withAlphaComponent(speedLayout.opacity))
         drawCenteredText(context: ctx, text: snapshot.unit.rawValue,
-                         in: CGRect(x: card.minX, y: card.minY + 420, width: card.width, height: 90),
-                         font: UIFont.systemFont(ofSize: 64, weight: .medium), color: .secondaryLabel)
+                         in: CGRect(x: speedCard.minX, y: speedCard.minY + 420, width: speedCard.width, height: 90),
+                         font: UIFont.systemFont(ofSize: 64 * speedLayout.scale, weight: .medium),
+                         color: .secondaryLabel.withAlphaComponent(speedLayout.opacity))
 
         // 指南针 + 转向箭头（开关打开）
         if settings.compass {
             drawCompass(context: ctx, heading: snapshot.heading,
-                        in: CGRect(x: card.maxX - 200, y: card.minY + 30, width: 150, height: 150))
+                        in: CGRect(x: speedCard.maxX - 200, y: speedCard.minY + 30, width: 150, height: 150))
         }
 
         // 左右副指标
@@ -345,10 +358,59 @@ final class VideoRecorder: ObservableObject {
                  at: CGPoint(x: locCard.minX + 50, y: locCard.minY + 185),
                  font: UIFont.systemFont(ofSize: 32, weight: .regular), color: .secondaryLabel, maxWidth: locCard.width - 100)
 
+        // 起终点组件：位置/大小/透明度由路线组件布局控制
+        drawRouteComponent(ctx: ctx, snapshot: snapshot)
+
         // 底部水印
         drawCenteredText(context: ctx, text: "SpeedoRecorder · \(snapshot.providerName)",
                          in: CGRect(x: 60, y: h - 120, width: w - 120, height: 60),
                          font: UIFont.systemFont(ofSize: 30, weight: .regular), color: .tertiaryLabel)
+    }
+
+    // MARK: - 布局换算与起终点组件
+    /// 按组件布局（中心点比例 + 缩放）把基准矩形换算到画布坐标
+    private func placeRect(base: CGRect, layout: ComponentLayout, canvas: CGSize) -> CGRect {
+        let scale = layout.scale
+        let width = base.width * scale
+        let height = base.height * scale
+        let cx = canvas.width * layout.centerX
+        let cy = canvas.height * layout.centerY
+        return CGRect(x: cx - width / 2, y: cy - height / 2, width: width, height: height)
+    }
+
+    /// 绘制行程起点 / 终点标注组件
+    private func drawRouteComponent(ctx: CGContext, snapshot: Snapshot) {
+        let layout = settings.routeLayout
+        let base = CGRect(x: 60, y: 0, width: canvasSize.width - 120, height: 200)
+        let card = placeRect(base: base, layout: layout, canvas: canvasSize)
+        drawGlassCard(context: ctx, rect: card, opacity: layout.opacity)
+
+        let alpha = layout.opacity
+        // 起点标记
+        ctx.setFillColor(UIColor.systemGreen.withAlphaComponent(alpha).cgColor)
+        ctx.fillEllipse(in: CGRect(x: card.minX + 50, y: card.minY + 70, width: 30, height: 30))
+        drawText(context: ctx, text: "起点", at: CGPoint(x: card.minX + 100, y: card.minY + 58),
+                 font: UIFont.systemFont(ofSize: 38, weight: .semibold),
+                 color: .white.withAlphaComponent(alpha))
+        let startText = snapshot.startLat != 0
+            ? String(format: "%.5f, %.5f", snapshot.startLat, snapshot.startLon)
+            : "—"
+        drawText(context: ctx, text: startText, at: CGPoint(x: card.minX + 100, y: card.minY + 118),
+                 font: UIFont.monospacedDigitSystemFont(ofSize: 30, weight: .regular),
+                 color: .secondaryLabel.withAlphaComponent(alpha))
+
+        // 终点标记
+        ctx.setFillColor(UIColor.systemRed.withAlphaComponent(alpha).cgColor)
+        ctx.fillEllipse(in: CGRect(x: card.minX + card.width / 2 + 20, y: card.minY + 70, width: 30, height: 30))
+        drawText(context: ctx, text: "终点", at: CGPoint(x: card.minX + card.width / 2 + 70, y: card.minY + 58),
+                 font: UIFont.systemFont(ofSize: 38, weight: .semibold),
+                 color: .white.withAlphaComponent(alpha))
+        let endText = snapshot.endLat != 0
+            ? String(format: "%.5f, %.5f", snapshot.endLat, snapshot.endLon)
+            : "—"
+        drawText(context: ctx, text: endText, at: CGPoint(x: card.minX + card.width / 2 + 70, y: card.minY + 118),
+                 font: UIFont.monospacedDigitSystemFont(ofSize: 30, weight: .regular),
+                 color: .secondaryLabel.withAlphaComponent(alpha))
     }
 
     /// 把摄像头帧按填充方式绘制到画布
@@ -367,16 +429,16 @@ final class VideoRecorder: ObservableObject {
     }
 
     // MARK: - 绘制辅助
-    private func drawGlassCard(context ctx: CGContext, rect: CGRect) {
+    private func drawGlassCard(context ctx: CGContext, rect: CGRect, opacity: Double = 1.0) {
         let path = UIBezierPath(roundedRect: rect, cornerRadius: 44)
         ctx.saveGState()
-        ctx.setFillColor(UIColor(white: 1, alpha: 0.08).cgColor)
+        ctx.setFillColor(UIColor(white: 1, alpha: 0.08 * opacity).cgColor)
         path.fill()
-        ctx.setStrokeColor(UIColor(white: 1, alpha: 0.18).cgColor)
+        ctx.setStrokeColor(UIColor(white: 1, alpha: 0.18 * opacity).cgColor)
         ctx.setLineWidth(2)
         path.stroke()
         let highlight = CGRect(x: rect.minX + 20, y: rect.minY + 12, width: rect.width - 40, height: 2)
-        ctx.setFillColor(UIColor(white: 1, alpha: 0.25).cgColor)
+        ctx.setFillColor(UIColor(white: 1, alpha: 0.25 * opacity).cgColor)
         ctx.fill(highlight)
         ctx.restoreGState()
     }
