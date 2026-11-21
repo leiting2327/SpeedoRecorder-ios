@@ -53,10 +53,17 @@ final class LocationManager: NSObject, ObservableObject {
     }
 
     // MARK: - 权限与启动
+    /// 首次进入界面时延迟调用，避免启动阶段触发权限弹窗/定位服务导致崩溃
     func requestPermission() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            self?.startLocation()
+        }
+    }
+
+    private func startLocation() {
         let status = manager.authorizationStatus
         if status == .notDetermined {
-            manager.requestAlwaysAuthorization()
+            manager.requestWhenInUseAuthorization()
         }
         guard status == .authorized || status == .notDetermined else {
             gpsDescription = "定位权限未开启，请在系统设置中允许"

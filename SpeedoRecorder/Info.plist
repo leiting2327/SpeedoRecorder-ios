@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>zh_CN</string>
 	<key>CFBundleDisplayName</key>
-	<string>车速记录仪</string>
+	<string>车速Recorder</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -28,8 +28,6 @@
 	<string>用于实时读取车速、GPS 信号强度、当前位置与行驶轨迹。</string>
 	<key>NSLocationAlwaysUsageDescription</key>
 	<string>用于后台持续记录行驶轨迹与车速数据。</string>
-	<key>NSSaveDocumentsUsageDescription</key>
-	<string>用于把录制的行程视频与轨迹数据保存到相册/文件。</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>用于把录制的行程视频保存到系统相册。</string>
 	<key>NSCameraUsageDescription</key>
@@ -38,10 +36,6 @@
 	<string>用于在录制行程视频时同步收录环境声音。</string>
 	<key>UIRequiresPersistentWiFi</key>
 	<false/>
-	<key>UIBackgroundModes</key>
-	<array>
-		<string>location</string>
-	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

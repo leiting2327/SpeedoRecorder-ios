@@ -105,7 +105,9 @@ struct ContentView: View {
                 location.requestPermission()
                 recorder.bind(location: location, map: map, unit: unit)
                 if settings.cameraPip {
-                    camera.requestAndStart()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                        camera.requestAndStart()
+                    }
                 }
             }
             .onReceive(location.$lastLocation) { loc in
@@ -212,6 +214,8 @@ struct ContentView: View {
     }
 
     // MARK: - 位置卡片
+    @State private var showMiniMap = false
+
     private var locationCard: some View {
         GlassCard {
             VStack(alignment: .leading, spacing: 10) {
@@ -234,9 +238,18 @@ struct ContentView: View {
                         .monospaced()
                         .foregroundColor(.secondary)
                 }
-                MiniMap(coordinate: location.coordinate)
-                    .frame(height: 160)
-                    .cornerRadius(20)
+                // 地图懒加载：出现在屏幕上时才创建 MapKit 视图
+                if showMiniMap {
+                    MiniMap(coordinate: location.coordinate)
+                        .frame(height: 160)
+                        .cornerRadius(20)
+                } else {
+                    Rectangle()
+                        .fill(Color.white.opacity(0.08))
+                        .frame(height: 160)
+                        .cornerRadius(20)
+                        .onAppear { showMiniMap = true }
+                }
             }
         }
     }
