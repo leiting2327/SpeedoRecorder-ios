@@ -36,7 +36,7 @@ final class HealthChecker: ObservableObject {
         var repaired = false
 
         // 1. 定位权限
-        let locStatus = CLLocationManager.authorizationStatus()
+        let locStatus = CLLocationManager().authorizationStatus
         switch locStatus {
         case .authorizedWhenInUse, .authorizedAlways:
             result.append(CheckItem(name: "定位权限", status: .ok, detail: "已允许"))
